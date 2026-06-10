@@ -1,0 +1,14 @@
+{
+  "name": "folio",
+  "version": "1.0.0",
+  "description": "A private reading room — literary PDF library",
+  "scripts": {
+    "build": "esbuild project/app.ts --outfile=project/app.js --target=es2020 --log-level=info",
+    "watch": "esbuild project/app.ts --outfile=project/app.js --target=es2020 --watch",
+    "dev": "esbuild project/app.ts --outfile=project/app.js --target=es2020 --watch"
+  },
+  "devDependencies": {
+    "esbuild": "^0.21.0",
+    "typescript": "^5.4.0"
+  }
+}
