@@ -68,9 +68,21 @@ browser stays same-origin (no CORS) and the auth cookie applies to both.
    Access Control (OAC); the bucket has no public access. PDF.js remains on its CDN.
 
 2. **Backend** — a single Node.js 20 Lambda behind a **Lambda Function URL**.
-   The Function URL auth type is `AWS_IAM`; CloudFront reaches it via OAC request
-   signing, so the URL is not directly callable from the public internet. Exposed
-   to the browser only through the CloudFront `/api/*` cache behavior.
+   Exposed to the browser only through the CloudFront `/api/*` cache behavior.
+
+   > **Amendment (2026-06-11, during implementation):** the original plan put the
+   > Function URL on `AuthType=AWS_IAM` with CloudFront OAC SigV4 signing. This is
+   > **incompatible with the app's write traffic**: CloudFront OAC does not sign
+   > request bodies and IAM Function URLs reject unsigned payloads, so every
+   > browser `POST`/`PUT` (login, upload, progress) failed SigV4 validation. We
+   > switched to the AWS-recommended pattern for browser APIs behind CloudFront +
+   > Lambda Function URL: **`AuthType=NONE`** (with public `InvokeFunctionUrl` +
+   > `InvokeFunction` permissions — the latter required for function URLs created
+   > Oct 2025+), gated by a **48-char random `x-origin-secret` header** that
+   > CloudFront injects on every origin request. The handler rejects any request
+   > lacking the secret, so the public URL can't be used directly. Access is
+   > layered: origin-secret header (CloudFront-only) + session cookie on every
+   > route + password on login. Only the S3 origin still uses OAC.
 
 3. **State store** — DynamoDB table (on-demand billing). Holds one item per book:
    `id`, `title`, `numPages`, `currentPage`, and a small JPEG cover thumbnail

@@ -61,50 +61,72 @@ function toast(msg: string): void {
   (toast as any)._t = window.setTimeout(() => t.classList.remove('show'), 2200);
 }
 
-// ---------- IndexedDB ----------
-const DB_NAME = 'folio';
-const STORE = 'books';
-let _db: IDBDatabase | null = null;
+// ---------- API client ----------
+// The book metadata that lives server-side (everything except the PDF bytes).
+type BookMeta = Omit<Book, 'data'>;
 
-function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    if (_db) return resolve(_db);
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE))
-        db.createObjectStore(STORE, { keyPath: 'id' });
-    };
-    req.onsuccess = () => { _db = req.result; resolve(_db); };
-    req.onerror = () => reject(req.error);
+async function api(path: string, opts: RequestInit = {}): Promise<Response> {
+  const res = await fetch('/api' + path, {
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json', ...(opts.headers || {}) },
+    ...opts,
   });
+  if (res.status === 401) { onUnauthorized(); throw new Error('unauthorized'); }
+  return res;
 }
-function tx(mode: IDBTransactionMode): Promise<IDBObjectStore> {
-  return openDB().then(db => db.transaction(STORE, mode).objectStore(STORE));
+
+let _onUnauthorized: () => void = () => {};
+function onUnauthorized(): void { _onUnauthorized(); }
+
+// List metadata for all books (no bytes).
+async function dbAll(): Promise<BookMeta[]> {
+  const res = await api('/books');
+  if (!res.ok) return [];
+  const { books } = await res.json();
+  return books as BookMeta[];
 }
+
+// Persist metadata. If the book carries fresh `data`, upload the bytes to S3.
 async function dbPut(b: Book): Promise<void> {
-  const store = await tx('readwrite');
-  return new Promise((res, rej) => {
-    const r = store.put(b); r.onsuccess = () => res(); r.onerror = () => rej(r.error);
+  const meta: BookMeta = stripData(b);
+  const res = await api('/books', { method: 'POST', body: JSON.stringify(meta) });
+  if (!res.ok) throw new Error('save failed');
+  const { uploadUrl } = await res.json();
+  if (b.data && uploadUrl) {
+    const put = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/pdf' },
+      body: b.data,
+    });
+    if (!put.ok) throw new Error('upload failed');
+  }
+}
+
+// Update just the reading position (used by persistPage).
+async function dbPutProgress(b: Book): Promise<void> {
+  await api('/books/' + encodeURIComponent(b.id) + '/progress', {
+    method: 'PUT',
+    body: JSON.stringify({ currentPage: b.currentPage, lastReadAt: b.lastReadAt || Date.now() }),
   });
 }
-async function dbAll(): Promise<Book[]> {
-  const store = await tx('readonly');
-  return new Promise((res, rej) => {
-    const r = store.getAll(); r.onsuccess = () => res(r.result as Book[]); r.onerror = () => rej(r.error);
-  });
+
+// Fetch the PDF bytes for one book via a presigned URL.
+async function dbGet(id: string): Promise<ArrayBuffer | null> {
+  const res = await api('/books/' + encodeURIComponent(id) + '/url');
+  if (!res.ok) return null;
+  const { url } = await res.json();
+  const file = await fetch(url);
+  if (!file.ok) return null;
+  return file.arrayBuffer();
 }
-async function dbGet(id: string): Promise<Book | undefined> {
-  const store = await tx('readonly');
-  return new Promise((res, rej) => {
-    const r = store.get(id); r.onsuccess = () => res(r.result as Book); r.onerror = () => rej(r.error);
-  });
-}
+
 async function dbDel(id: string): Promise<void> {
-  const store = await tx('readwrite');
-  return new Promise((res, rej) => {
-    const r = store.delete(id); r.onsuccess = () => res(); r.onerror = () => rej(r.error);
-  });
+  await api('/books/' + encodeURIComponent(id), { method: 'DELETE' });
+}
+
+function stripData(b: Book): BookMeta {
+  const { data, ...rest } = b;
+  return rest;
 }
 
 // ---------- state ----------
@@ -112,7 +134,6 @@ const LS = {
   user: 'folio.user',
   view: 'folio.view',
   width: 'folio.readerWidth',
-  seeded: 'folio.seeded2',
 };
 let books: Book[] = [];
 let viewMode: ViewMode = (localStorage.getItem(LS.view) as ViewMode) || 'shelf';
@@ -211,24 +232,6 @@ async function addFiles(files: FileList | File[]): Promise<void> {
   toast('Added to your library');
 }
 
-// ---------- seeding ----------
-async function seedIfEmpty(): Promise<void> {
-  if (localStorage.getItem(LS.seeded)) return;
-  localStorage.setItem(LS.seeded, '1');
-  const samples = [
-    { url: 'samples/on-the-pleasures-of-reading.pdf', name: 'On the Pleasures of Reading.pdf', author: 'Folio Editions' },
-    { url: 'samples/a-field-guide-to-quiet-mornings.pdf', name: 'A Field Guide to Quiet Mornings.pdf', author: 'Folio Editions' },
-  ];
-  for (const s of samples) {
-    try {
-      const res = await fetch(s.url);
-      if (!res.ok) continue;
-      const buf = await res.arrayBuffer();
-      const b = await ingest({ name: s.name, buf });
-      if (b) { b.author = s.author; await dbPut(b); books.push(b); }
-    } catch (e) { /* offline / missing sample — skip */ }
-  }
-}
 
 // ============================================================
 //  LIBRARY RENDERING
@@ -391,8 +394,9 @@ const reader = {
 };
 
 async function openBook(id: string): Promise<void> {
-  const b = await dbGet(id);
-  if (!b) { toast('Could not open that book'); return; }
+  const meta = books.find(x => x.id === id);
+  if (!meta) { toast('Could not open that book'); return; }
+  const b = meta as Book;
   reader.book = b;
   reader.page = Math.min(Math.max(1, b.currentPage || 1), b.numPages);
   reader.zoom = 1;
@@ -405,7 +409,9 @@ async function openBook(id: string): Promise<void> {
   document.body.style.overflow = 'hidden';
   el('r-loading').classList.remove('hidden');
   try {
-    reader.doc = await loadDoc(b.data);
+    const bytes = await dbGet(id);
+    if (!bytes) { toast('Could not load this PDF'); el('r-loading').classList.add('hidden'); return; }
+    reader.doc = await loadDoc(bytes);
     await renderPage(reader.page, false);
   } catch (e) {
     console.error(e); toast('Failed to load this PDF');
@@ -481,7 +487,7 @@ function persistPage(): void {
   const cached = books.find(x => x.id === b.id);
   if (cached) { cached.currentPage = b.currentPage; cached.lastReadAt = b.lastReadAt; }
   window.clearTimeout(reader.saveTimer);
-  reader.saveTimer = window.setTimeout(() => { dbPut(b).catch(() => {}); }, 350);
+  reader.saveTimer = window.setTimeout(() => { dbPutProgress(b).catch(() => {}); }, 350);
 }
 
 function go(delta: number): void {
@@ -611,9 +617,20 @@ function wireAuth(): void {
     const name = (el('login-name') as HTMLInputElement).value.trim() || 'Reader';
     const pass = (el('login-pass') as HTMLInputElement).value;
     if (!pass) return;
-    localStorage.setItem(LS.user, JSON.stringify({ name }));
-    showApp(name);
-    await boot();
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ password: pass }),
+      });
+      if (!res.ok) { toast('Wrong password'); return; }
+      localStorage.setItem(LS.user, JSON.stringify({ name }));
+      showApp(name);
+      await boot();
+    } catch {
+      toast('Could not reach the server');
+    }
   });
 
   el('avatar').addEventListener('click', (e) => {
@@ -622,12 +639,15 @@ function wireAuth(): void {
   });
   document.addEventListener('click', () => el('dropdown').classList.add('hidden'));
   el('dropdown').addEventListener('click', (e) => e.stopPropagation());
-  el('btn-logout').addEventListener('click', () => {
+  el('btn-logout').addEventListener('click', async () => {
+    try { await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' }); } catch {}
     localStorage.removeItem(LS.user);
     el('app').classList.add('hidden');
     el('login').classList.remove('hidden');
     el('dropdown').classList.add('hidden');
     (el('login-pass') as HTMLInputElement).value = '';
+    booted = false;
+    books = [];
   });
   el('brand').addEventListener('click', () => { if (el('reader').classList.contains('show')) closeReader(); });
 }
@@ -666,15 +686,19 @@ async function boot(): Promise<void> {
   if (booted) { renderLibrary(); return; }
   booted = true;
   try {
-    books = await dbAll();
-    if (!books.length) await seedIfEmpty();
-    books = await dbAll();
-  } catch (e) { console.error('db error', e); books = []; }
+    books = (await dbAll()) as unknown as Book[];
+  } catch (e) { console.error('api error', e); books = []; }
   renderLibrary();
 }
 
 function init(): void {
   wireAuth();
+  _onUnauthorized = () => {
+    localStorage.removeItem(LS.user);
+    el('app').classList.add('hidden');
+    el('login').classList.remove('hidden');
+    booted = false;
+  };
   wireViewSwitch();
   wireLibrary();
   wireUpload();

@@ -1,0 +1,76 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install backend runtime deps (for the Lambda zip)
+        working-directory: backend
+        run: npm ci --omit=dev
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+
+      - name: Terraform apply
+        working-directory: infra
+        run: |
+          terraform init -input=false
+          terraform apply -auto-approve -input=false
+
+      - name: Read outputs
+        id: tf
+        working-directory: infra
+        run: |
+          echo "site_bucket=$(terraform output -raw site_bucket)" >> "$GITHUB_OUTPUT"
+          echo "distribution_id=$(terraform output -raw distribution_id)" >> "$GITHUB_OUTPUT"
+          echo "lambda_name=$(terraform output -raw lambda_function_name)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish frontend to S3
+        run: |
+          aws s3 cp project/index.html "s3://${{ steps.tf.outputs.site_bucket }}/index.html" --cache-control "no-cache"
+          aws s3 cp project/app.js     "s3://${{ steps.tf.outputs.site_bucket }}/app.js"     --cache-control "max-age=300"
+          aws s3 cp project/styles.css "s3://${{ steps.tf.outputs.site_bucket }}/styles.css" --cache-control "max-age=300"
+
+      - name: Update Lambda code
+        working-directory: backend
+        run: |
+          rm -f function.zip
+          zip -rq function.zip src node_modules package.json
+          aws lambda update-function-code \
+            --function-name "${{ steps.tf.outputs.lambda_name }}" \
+            --zip-file fileb://function.zip >/dev/null
+
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ steps.tf.outputs.distribution_id }}" \
+            --paths "/index.html" "/app.js" "/styles.css"
