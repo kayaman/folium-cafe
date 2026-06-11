@@ -1,1 +1,17 @@
 node_modules/
+
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfplan
+.terraform.lock.hcl
+
+# Backend build
+backend/node_modules/
+backend/dist/
+backend/function.zip
+
+# Built frontend (built in CI; keep source app.ts)
+project/app.js
