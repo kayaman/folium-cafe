@@ -1,0 +1,18 @@
+{
+  "name": "folio-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Folio reader Lambda backend (Function URL)",
+  "scripts": {
+    "test": "node --test",
+    "zip": "rm -f function.zip && zip -rq function.zip src node_modules package.json"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.600.0",
+    "@aws-sdk/lib-dynamodb": "^3.600.0",
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@aws-sdk/s3-request-presigner": "^3.600.0",
+    "@aws-sdk/client-ssm": "^3.600.0"
+  }
+}
