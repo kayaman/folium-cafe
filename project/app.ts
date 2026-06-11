@@ -1,5 +1,5 @@
 /* ============================================================
-   FOLIO — app.ts  (TypeScript, transpiled in-browser via Babel)
+   FOLIUM — app.ts
    ============================================================ */
 (() => {
 
@@ -131,9 +131,9 @@ function stripData(b: Book): BookMeta {
 
 // ---------- state ----------
 const LS = {
-  user: 'folio.user',
-  view: 'folio.view',
-  width: 'folio.readerWidth',
+  user: 'folium.user',
+  view: 'folium.view',
+  width: 'folium.readerWidth',
 };
 let books: Book[] = [];
 let viewMode: ViewMode = (localStorage.getItem(LS.view) as ViewMode) || 'shelf';
