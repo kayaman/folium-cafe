@@ -134,7 +134,6 @@ const LS = {
   user: 'folio.user',
   view: 'folio.view',
   width: 'folio.readerWidth',
-  seeded: 'folio.seeded2',
 };
 let books: Book[] = [];
 let viewMode: ViewMode = (localStorage.getItem(LS.view) as ViewMode) || 'shelf';
@@ -233,24 +232,6 @@ async function addFiles(files: FileList | File[]): Promise<void> {
   toast('Added to your library');
 }
 
-// ---------- seeding ----------
-async function seedIfEmpty(): Promise<void> {
-  if (localStorage.getItem(LS.seeded)) return;
-  localStorage.setItem(LS.seeded, '1');
-  const samples = [
-    { url: 'samples/on-the-pleasures-of-reading.pdf', name: 'On the Pleasures of Reading.pdf', author: 'Folio Editions' },
-    { url: 'samples/a-field-guide-to-quiet-mornings.pdf', name: 'A Field Guide to Quiet Mornings.pdf', author: 'Folio Editions' },
-  ];
-  for (const s of samples) {
-    try {
-      const res = await fetch(s.url);
-      if (!res.ok) continue;
-      const buf = await res.arrayBuffer();
-      const b = await ingest({ name: s.name, buf });
-      if (b) { b.author = s.author; await dbPut(b); books.push(b); }
-    } catch (e) { /* offline / missing sample — skip */ }
-  }
-}
 
 // ============================================================
 //  LIBRARY RENDERING
@@ -413,8 +394,9 @@ const reader = {
 };
 
 async function openBook(id: string): Promise<void> {
-  const b = await dbGet(id);
-  if (!b) { toast('Could not open that book'); return; }
+  const meta = books.find(x => x.id === id);
+  if (!meta) { toast('Could not open that book'); return; }
+  const b = meta as Book;
   reader.book = b;
   reader.page = Math.min(Math.max(1, b.currentPage || 1), b.numPages);
   reader.zoom = 1;
@@ -427,7 +409,9 @@ async function openBook(id: string): Promise<void> {
   document.body.style.overflow = 'hidden';
   el('r-loading').classList.remove('hidden');
   try {
-    reader.doc = await loadDoc(b.data);
+    const bytes = await dbGet(id);
+    if (!bytes) { toast('Could not load this PDF'); el('r-loading').classList.add('hidden'); return; }
+    reader.doc = await loadDoc(bytes);
     await renderPage(reader.page, false);
   } catch (e) {
     console.error(e); toast('Failed to load this PDF');
@@ -503,7 +487,7 @@ function persistPage(): void {
   const cached = books.find(x => x.id === b.id);
   if (cached) { cached.currentPage = b.currentPage; cached.lastReadAt = b.lastReadAt; }
   window.clearTimeout(reader.saveTimer);
-  reader.saveTimer = window.setTimeout(() => { dbPut(b).catch(() => {}); }, 350);
+  reader.saveTimer = window.setTimeout(() => { dbPutProgress(b).catch(() => {}); }, 350);
 }
 
 function go(delta: number): void {
@@ -688,10 +672,8 @@ async function boot(): Promise<void> {
   if (booted) { renderLibrary(); return; }
   booted = true;
   try {
-    books = await dbAll();
-    if (!books.length) await seedIfEmpty();
-    books = await dbAll();
-  } catch (e) { console.error('db error', e); books = []; }
+    books = (await dbAll()) as unknown as Book[];
+  } catch (e) { console.error('api error', e); books = []; }
   renderLibrary();
 }
 
