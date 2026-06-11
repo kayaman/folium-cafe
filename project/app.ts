@@ -391,6 +391,7 @@ const reader = {
   renderToken: 0,
   saveTimer: 0 as any,
   peekTimer: 0 as any,
+  wheelLock: 0,
 };
 
 async function openBook(id: string): Promise<void> {
@@ -496,6 +497,28 @@ function go(delta: number): void {
   if (next < 1 || next > reader.book.numPages) return;
   renderPage(next, false);
 }
+
+// Edge-aware page turning: the wheel scrolls within a tall page, and only flips
+// pages once you're already at the top/bottom edge and keep scrolling. A short
+// cooldown stops trackpad momentum from skipping multiple pages per gesture.
+function onReaderWheel(e: WheelEvent): void {
+  if (!reader.doc || !reader.book) return;
+  const down = e.deltaY > 0, up = e.deltaY < 0;
+  if (!down && !up) return; // pure horizontal / no vertical intent
+
+  const stage = el('r-stage');
+  const atTop = stage.scrollTop <= 1;
+  const atBottom = stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 1;
+
+  // Not at the relevant edge yet -> let the page scroll natively.
+  if ((down && !atBottom) || (up && !atTop)) return;
+
+  // At the edge: swallow the event and (rate-limited) turn the page.
+  e.preventDefault();
+  if (e.timeStamp - reader.wheelLock < 500) return;
+  if (down && reader.page < reader.book.numPages) { reader.wheelLock = e.timeStamp; go(1); }
+  else if (up && reader.page > 1) { reader.wheelLock = e.timeStamp; go(-1); }
+}
 function setWidthButtons(): void {
   document.querySelectorAll('#width-seg button').forEach(btn => {
     btn.classList.toggle('active', (btn as HTMLElement).dataset.w === reader.width);
@@ -543,6 +566,7 @@ function wireReader(): void {
   el('r-next').addEventListener('click', () => go(1));
   el('r-prev-s').addEventListener('click', () => go(-1));
   el('r-next-s').addEventListener('click', () => go(1));
+  el('r-stage').addEventListener('wheel', onReaderWheel, { passive: false });
   el('r-focus').addEventListener('click', toggleZen);
 
   el('r-zoom-in').addEventListener('click', () => { reader.zoom = Math.min(reader.zoom + 0.15, 2.2); renderPage(reader.page, true); });
