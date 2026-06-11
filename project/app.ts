@@ -61,50 +61,72 @@ function toast(msg: string): void {
   (toast as any)._t = window.setTimeout(() => t.classList.remove('show'), 2200);
 }
 
-// ---------- IndexedDB ----------
-const DB_NAME = 'folio';
-const STORE = 'books';
-let _db: IDBDatabase | null = null;
+// ---------- API client ----------
+// The book metadata that lives server-side (everything except the PDF bytes).
+type BookMeta = Omit<Book, 'data'>;
 
-function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    if (_db) return resolve(_db);
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE))
-        db.createObjectStore(STORE, { keyPath: 'id' });
-    };
-    req.onsuccess = () => { _db = req.result; resolve(_db); };
-    req.onerror = () => reject(req.error);
+async function api(path: string, opts: RequestInit = {}): Promise<Response> {
+  const res = await fetch('/api' + path, {
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json', ...(opts.headers || {}) },
+    ...opts,
   });
+  if (res.status === 401) { onUnauthorized(); throw new Error('unauthorized'); }
+  return res;
 }
-function tx(mode: IDBTransactionMode): Promise<IDBObjectStore> {
-  return openDB().then(db => db.transaction(STORE, mode).objectStore(STORE));
+
+let _onUnauthorized: () => void = () => {};
+function onUnauthorized(): void { _onUnauthorized(); }
+
+// List metadata for all books (no bytes).
+async function dbAll(): Promise<BookMeta[]> {
+  const res = await api('/books');
+  if (!res.ok) return [];
+  const { books } = await res.json();
+  return books as BookMeta[];
 }
+
+// Persist metadata. If the book carries fresh `data`, upload the bytes to S3.
 async function dbPut(b: Book): Promise<void> {
-  const store = await tx('readwrite');
-  return new Promise((res, rej) => {
-    const r = store.put(b); r.onsuccess = () => res(); r.onerror = () => rej(r.error);
+  const meta: BookMeta = stripData(b);
+  const res = await api('/books', { method: 'POST', body: JSON.stringify(meta) });
+  if (!res.ok) throw new Error('save failed');
+  const { uploadUrl } = await res.json();
+  if (b.data && uploadUrl) {
+    const put = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/pdf' },
+      body: b.data,
+    });
+    if (!put.ok) throw new Error('upload failed');
+  }
+}
+
+// Update just the reading position (used by persistPage).
+async function dbPutProgress(b: Book): Promise<void> {
+  await api('/books/' + encodeURIComponent(b.id) + '/progress', {
+    method: 'PUT',
+    body: JSON.stringify({ currentPage: b.currentPage, lastReadAt: b.lastReadAt || Date.now() }),
   });
 }
-async function dbAll(): Promise<Book[]> {
-  const store = await tx('readonly');
-  return new Promise((res, rej) => {
-    const r = store.getAll(); r.onsuccess = () => res(r.result as Book[]); r.onerror = () => rej(r.error);
-  });
+
+// Fetch the PDF bytes for one book via a presigned URL.
+async function dbGet(id: string): Promise<ArrayBuffer | null> {
+  const res = await api('/books/' + encodeURIComponent(id) + '/url');
+  if (!res.ok) return null;
+  const { url } = await res.json();
+  const file = await fetch(url);
+  if (!file.ok) return null;
+  return file.arrayBuffer();
 }
-async function dbGet(id: string): Promise<Book | undefined> {
-  const store = await tx('readonly');
-  return new Promise((res, rej) => {
-    const r = store.get(id); r.onsuccess = () => res(r.result as Book); r.onerror = () => rej(r.error);
-  });
-}
+
 async function dbDel(id: string): Promise<void> {
-  const store = await tx('readwrite');
-  return new Promise((res, rej) => {
-    const r = store.delete(id); r.onsuccess = () => res(); r.onerror = () => rej(r.error);
-  });
+  await api('/books/' + encodeURIComponent(id), { method: 'DELETE' });
+}
+
+function stripData(b: Book): BookMeta {
+  const { data, ...rest } = b;
+  return rest;
 }
 
 // ---------- state ----------
