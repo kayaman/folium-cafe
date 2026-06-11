@@ -46,6 +46,12 @@ jobs:
           terraform init -input=false
           terraform apply -auto-approve -input=false
 
+      - name: Folium name servers
+        working-directory: infra
+        run: |
+          echo "### folium.cafe name servers (set these at GoDaddy)" >> "$GITHUB_STEP_SUMMARY"
+          terraform output -json folium_name_servers | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Read outputs
         id: tf
         working-directory: infra
