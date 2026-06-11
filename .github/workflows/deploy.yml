@@ -7,6 +7,7 @@ on:
 permissions:
   id-token: write
   contents: read
+  issues: write
 
 concurrency:
   group: deploy-main
@@ -48,9 +49,16 @@ jobs:
 
       - name: Folium name servers
         working-directory: infra
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "### folium.cafe name servers (set these at GoDaddy)" >> "$GITHUB_STEP_SUMMARY"
-          terraform output -json folium_name_servers | tee -a "$GITHUB_STEP_SUMMARY"
+          NS=$(terraform output -json folium_name_servers)
+          echo "$NS" | tee -a "$GITHUB_STEP_SUMMARY"
+          BODY=$(printf 'Route53 hosted zone for **folium.cafe** is live. Configure these name servers at GoDaddy:\n\n```json\n%s\n```' "$NS")
+          curl -s -X POST -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/issues" \
+            -d "$(printf '{"title":"folium.cafe name servers","body":%s}' "$(echo "$BODY" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')")" >/dev/null
 
       - name: Read outputs
         id: tf
