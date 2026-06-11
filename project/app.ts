@@ -617,9 +617,20 @@ function wireAuth(): void {
     const name = (el('login-name') as HTMLInputElement).value.trim() || 'Reader';
     const pass = (el('login-pass') as HTMLInputElement).value;
     if (!pass) return;
-    localStorage.setItem(LS.user, JSON.stringify({ name }));
-    showApp(name);
-    await boot();
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ password: pass }),
+      });
+      if (!res.ok) { toast('Wrong password'); return; }
+      localStorage.setItem(LS.user, JSON.stringify({ name }));
+      showApp(name);
+      await boot();
+    } catch {
+      toast('Could not reach the server');
+    }
   });
 
   el('avatar').addEventListener('click', (e) => {
@@ -628,12 +639,15 @@ function wireAuth(): void {
   });
   document.addEventListener('click', () => el('dropdown').classList.add('hidden'));
   el('dropdown').addEventListener('click', (e) => e.stopPropagation());
-  el('btn-logout').addEventListener('click', () => {
+  el('btn-logout').addEventListener('click', async () => {
+    try { await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' }); } catch {}
     localStorage.removeItem(LS.user);
     el('app').classList.add('hidden');
     el('login').classList.remove('hidden');
     el('dropdown').classList.add('hidden');
     (el('login-pass') as HTMLInputElement).value = '';
+    booted = false;
+    books = [];
   });
   el('brand').addEventListener('click', () => { if (el('reader').classList.contains('show')) closeReader(); });
 }
@@ -679,6 +693,12 @@ async function boot(): Promise<void> {
 
 function init(): void {
   wireAuth();
+  _onUnauthorized = () => {
+    localStorage.removeItem(LS.user);
+    el('app').classList.add('hidden');
+    el('login').classList.remove('hidden');
+    booted = false;
+  };
   wireViewSwitch();
   wireLibrary();
   wireUpload();
