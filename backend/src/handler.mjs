@@ -23,6 +23,13 @@ async function authed(event) {
 }
 
 export async function handler(event) {
+  // Gate: only CloudFront knows the origin secret, so a direct hit on the public
+  // Function URL (which has AuthType=NONE) is rejected here.
+  const headers = event.headers ?? {};
+  if (!process.env.ORIGIN_SECRET || headers['x-origin-secret'] !== process.env.ORIGIN_SECRET) {
+    return json(403, { error: 'forbidden' });
+  }
+
   const method = event.requestContext?.http?.method ?? 'GET';
   const path = (event.rawPath ?? '/').replace(/\/+$/, '') || '/';
   const body = event.body

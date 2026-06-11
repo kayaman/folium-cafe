@@ -5,13 +5,6 @@ resource "aws_cloudfront_origin_access_control" "s3" {
   signing_protocol                  = "sigv4"
 }
 
-resource "aws_cloudfront_origin_access_control" "lambda" {
-  name                              = "${var.name_prefix}-lambda-oac"
-  origin_access_control_origin_type = "lambda"
-  signing_behavior                  = "always"
-  signing_protocol                  = "sigv4"
-}
-
 # AWS-managed policies.
 data "aws_cloudfront_cache_policy" "optimized" {
   name = "Managed-CachingOptimized"
@@ -41,14 +34,19 @@ resource "aws_cloudfront_distribution" "site" {
   }
 
   origin {
-    origin_id                = "lambda-api"
-    domain_name              = local.lambda_url_host
-    origin_access_control_id = aws_cloudfront_origin_access_control.lambda.id
+    origin_id   = "lambda-api"
+    domain_name = local.lambda_url_host
     custom_origin_config {
       http_port              = 80
       https_port             = 443
       origin_protocol_policy = "https-only"
       origin_ssl_protocols   = ["TLSv1.2"]
+    }
+    # CloudFront attaches this secret to every origin request; the Lambda rejects
+    # requests that lack it, so the public Function URL can't be hit directly.
+    custom_header {
+      name  = "x-origin-secret"
+      value = random_password.origin_secret.result
     }
   }
 
