@@ -4,8 +4,8 @@ provider "aws" {
   region = "us-east-1"
   default_tags {
     tags = {
-      Project = "folio"
-      App     = "read.magj.dev"
+      Project = "folium"
+      App     = "folium.cafe"
     }
   }
 }

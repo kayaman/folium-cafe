@@ -27,7 +27,7 @@ resource "aws_s3_bucket_public_access_block" "pdfs" {
 }
 
 # The browser uploads/downloads directly to S3 via presigned URLs, which is a
-# cross-origin request from read.magj.dev, so the bucket needs CORS.
+# cross-origin request from the site, so the bucket needs CORS.
 resource "aws_s3_bucket_cors_configuration" "pdfs" {
   bucket = aws_s3_bucket.pdfs.id
   cors_rule {

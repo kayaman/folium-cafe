@@ -1,11 +1,11 @@
 variable "domain_name" {
   type    = string
-  default = "read.magj.dev"
+  default = "folium.cafe"
 }
 
 variable "hosted_zone_name" {
   type    = string
-  default = "magj.dev"
+  default = "folium.cafe"
 }
 
 variable "github_repo" {
