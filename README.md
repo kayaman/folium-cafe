@@ -1,25 +1,38 @@
-# CODING AGENTS: READ THIS FIRST
+# Folium Café ☕🍂
 
-This is a **handoff bundle** from Claude Design (claude.ai/design).
+> *so you remember the page you were on*
 
-A user mocked up designs in HTML/CSS/JS using an AI design tool, then exported this bundle so a coding agent can implement the designs for real.
+A private, single-user PDF reading room at [folium.cafe](https://folium.cafe). Upload books, read them anywhere, and your shelf — including the exact page you were on — follows you across devices. Installable as an Android PWA with offline reading.
 
-## What you should do — IMPORTANT
+*Folium* is Latin for a leaf — of a tree, or of a book.
 
-**Read the chat transcripts first.** There are 1 chat transcript(s) in `chats/`. The transcripts show the full back-and-forth between the user and the design assistant — they tell you **what the user actually wants** and **where they landed** after iterating. Don't skip them. The final HTML files are the output, but the chat is where the intent lives.
+## Features
 
-**Find the primary design file under `project/` and read it top to bottom.** The chat transcripts will tell you which file the user was last iterating on. Then **follow its imports**: open every file it pulls in (shared components, CSS, scripts) so you understand how the pieces fit together before you start implementing.
+- **Cross-device library** — book metadata and reading progress live server-side behind one passphrase
+- **PWA** — installs to the Android home screen (leaf crest, splash, edge-to-edge leather theming, "Continue reading" shortcut)
+- **Offline reading** — opened books are cached on-device (LRU, 10 books); page turns made offline sync back when you reconnect
+- **Share-sheet ingestion** — share a PDF from any Android app straight onto your shelf
+- **A quiet reader** — comfort/full width, zoom, zen mode, edge-aware wheel page turns
 
-**If anything is ambiguous, ask the user to confirm before you start implementing.** It's much cheaper to clarify scope up front than to build the wrong thing.
+## Stack
 
-## About the design files
+| Layer | Tech |
+|---|---|
+| Frontend | Vanilla TypeScript + esbuild, hand-rolled service worker, PDF.js (self-hosted) |
+| Backend | Node.js 20 Lambda (Function URL) behind CloudFront `/api/*` |
+| State | DynamoDB (metadata + progress), S3 (PDF bytes via presigned URLs) |
+| Infra | Terraform — CloudFront, S3 (OAC), ACM, Route 53, SSM, IAM/OIDC |
+| CI/CD | GitHub Actions: PR → build/test/plan · main → apply/deploy/invalidate |
 
-The design medium is **HTML/CSS/JS** — these are prototypes, not production code. Your job is to **recreate them pixel-perfectly** in whatever technology makes sense for the target codebase (React, Vue, native, whatever fits). Match the visual output; don't copy the prototype's internal structure unless it happens to fit.
+## Development
 
-**Don't render these files in a browser or take screenshots unless the user asks you to.** Everything you need — dimensions, colors, layout rules — is spelled out in the source. Read the HTML and CSS directly; a screenshot won't tell you anything they don't.
+```sh
+npm ci && npm run build     # bundle app.ts + sw.ts
+cd backend && npm test      # lambda unit tests (node:test)
+cd infra && terraform plan  # infra changes
+npm run icons               # re-render icon PNGs from the SVG crest masters
+```
 
-## Bundle contents
+There's no local dev server — the API only exists behind CloudFront. Push to a branch for CI; merge to `main` to deploy.
 
-- `README.md` — this file
-- `chats/` — conversation transcripts (read these!)
-- `project/` — the `Bookreader` project files (HTML prototypes, assets, components)
+See `CLAUDE.md` for architecture details and `docs/superpowers/specs/` for the design documents.

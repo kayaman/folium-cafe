@@ -1,19 +1,19 @@
 variable "domain_name" {
   type    = string
-  default = "read.magj.dev"
+  default = "folium.cafe"
 }
 
 variable "hosted_zone_name" {
   type    = string
-  default = "magj.dev"
+  default = "folium.cafe"
 }
 
 variable "github_repo" {
   type    = string
-  default = "kayaman/reader"
+  default = "kayaman/folium-cafe"
 }
 
 variable "name_prefix" {
   type    = string
-  default = "folio"
+  default = "folium-cafe"
 }

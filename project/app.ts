@@ -1,5 +1,5 @@
 /* ============================================================
-   FOLIO — app.ts  (TypeScript, transpiled in-browser via Babel)
+   FOLIUM CAFÉ — app.ts  (so you remember the page you were on)
    ============================================================ */
 (() => {
 
@@ -12,25 +12,10 @@
 
 const pdfjs: any = (window as any).pdfjsLib;
 const PDFJS_VER = '3.11.174';
+// unpkg is only used for the lazy standard fonts / CJK cmaps; the library and
+// its worker are self-hosted under /vendor so the reader works offline.
 const PDFJS_CDN = 'https://unpkg.com/pdfjs-dist@' + PDFJS_VER;
-
-// A cross-origin URL can't be used directly as a Worker (SecurityError), so we
-// fetch the worker source and spin it up from a same-origin blob URL.
-let _workerReady: Promise<void> | null = null;
-function ensureWorker(): Promise<void> {
-  if (_workerReady) return _workerReady;
-  _workerReady = (async () => {
-    try {
-      const code = await (await fetch(PDFJS_CDN + '/build/pdf.worker.min.js')).text();
-      pdfjs.GlobalWorkerOptions.workerSrc = URL.createObjectURL(
-        new Blob([code], { type: 'application/javascript' }));
-    } catch (e) {
-      console.warn('blob worker failed; falling back', e);
-      pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_CDN + '/build/pdf.worker.min.js';
-    }
-  })();
-  return _workerReady;
-}
+pdfjs.GlobalWorkerOptions.workerSrc = '/vendor/pdf.worker.min.js';
 
 // ---------- types ----------
 interface Book {
@@ -65,25 +50,140 @@ function toast(msg: string): void {
 // The book metadata that lives server-side (everything except the PDF bytes).
 type BookMeta = Omit<Book, 'data'>;
 
+// Network failure and auth failure need different reactions (offline mode vs
+// login screen), so api() throws typed errors instead of one generic Error.
+class ApiAuthError extends Error {}
+class ApiNetworkError extends Error {}
+
 async function api(path: string, opts: RequestInit = {}): Promise<Response> {
-  const res = await fetch('/api' + path, {
-    credentials: 'same-origin',
-    headers: { 'content-type': 'application/json', ...(opts.headers || {}) },
-    ...opts,
-  });
-  if (res.status === 401) { onUnauthorized(); throw new Error('unauthorized'); }
+  let res: Response;
+  try {
+    res = await fetch('/api' + path, {
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', ...(opts.headers || {}) },
+      ...opts,
+    });
+  } catch (e) {
+    setOffline(true);
+    throw new ApiNetworkError(String(e));
+  }
+  setOffline(false);
+  if (res.status === 401) { onUnauthorized(); throw new ApiAuthError('unauthorized'); }
   return res;
 }
 
 let _onUnauthorized: () => void = () => {};
 function onUnauthorized(): void { _onUnauthorized(); }
 
-// List metadata for all books (no bytes).
+// ---------- offline stores ----------
+// PDF bytes and the library snapshot live in the Cache API under synthetic
+// same-origin keys. The service worker never touches these caches, so they
+// survive SW updates; logout deletes them.
+const PDF_CACHE = 'folium-pdf';
+const DATA_CACHE = 'folium-data';
+const SHARED_CACHE = 'folium-shared';
+const pdfKey = (id: string) => '/pdf-store/' + encodeURIComponent(id);
+const PDF_LRU_MAX = 10;
+
+let offlineIds = new Set<string>();   // books readable offline (drives the card dot)
+
+function lruRead(): Record<string, number> {
+  try { return JSON.parse(localStorage.getItem(LS.pdfLru) || '{}'); } catch { return {}; }
+}
+function touchLru(id: string): void {
+  const lru = lruRead();
+  lru[id] = Date.now();
+  localStorage.setItem(LS.pdfLru, JSON.stringify(lru));
+}
+function dropLru(id: string): void {
+  const lru = lruRead();
+  delete lru[id];
+  localStorage.setItem(LS.pdfLru, JSON.stringify(lru));
+}
+
+async function cachePdf(id: string, buf: ArrayBuffer): Promise<void> {
+  try {
+    const est = await navigator.storage?.estimate?.().catch(() => null);
+    if (est && est.quota && ((est.usage || 0) + buf.byteLength) > est.quota * 0.9) return;
+    const cache = await caches.open(PDF_CACHE);
+    await cache.put(pdfKey(id),
+      new Response(buf.slice(0), { headers: { 'content-type': 'application/pdf' } }));
+    touchLru(id);
+    // Evict least-recently-read beyond the cap; a re-open just re-downloads.
+    const lru = lruRead();
+    const ids = Object.keys(lru).sort((a, b) => lru[a] - lru[b]);
+    while (ids.length > PDF_LRU_MAX) {
+      const oldest = ids.shift()!;
+      await cache.delete(pdfKey(oldest));
+      dropLru(oldest);
+    }
+    await refreshOfflineIds();
+  } catch { /* quota or private mode — caching is best-effort */ }
+}
+
+async function evictPdf(id: string): Promise<void> {
+  try { await (await caches.open(PDF_CACHE)).delete(pdfKey(id)); } catch {}
+  dropLru(id);
+  await refreshOfflineIds();
+}
+
+async function refreshOfflineIds(): Promise<void> {
+  try {
+    const keys = await (await caches.open(PDF_CACHE)).keys();
+    offlineIds = new Set(keys.map(r => decodeURIComponent(new URL(r.url).pathname.replace('/pdf-store/', ''))));
+  } catch { offlineIds = new Set(); }
+}
+
+// ---------- offline progress queue ----------
+// Only the latest position per book matters, so a keyed map is lossless.
+function enqueueProgress(b: Book): void {
+  let q: Record<string, { currentPage: number; lastReadAt: number }>;
+  try { q = JSON.parse(localStorage.getItem(LS.progressQueue) || '{}'); } catch { q = {}; }
+  if (!q[b.id] || b.lastReadAt >= q[b.id].lastReadAt) {
+    q[b.id] = { currentPage: b.currentPage, lastReadAt: b.lastReadAt };
+  }
+  localStorage.setItem(LS.progressQueue, JSON.stringify(q));
+}
+
+async function flushProgressQueue(): Promise<void> {
+  let q: Record<string, { currentPage: number; lastReadAt: number }>;
+  try { q = JSON.parse(localStorage.getItem(LS.progressQueue) || '{}'); } catch { return; }
+  for (const id of Object.keys(q)) {
+    try {
+      // Drop the entry on any server response (404 = book deleted meanwhile).
+      await api('/books/' + encodeURIComponent(id) + '/progress',
+        { method: 'PUT', body: JSON.stringify(q[id]) });
+      delete q[id];
+      localStorage.setItem(LS.progressQueue, JSON.stringify(q));
+    } catch { break; }  // still offline (or logged out): retry on the next trigger
+  }
+}
+
+// ---------- offline indicator ----------
+let _offline = false;
+function setOffline(off: boolean): void {
+  if (off === _offline) return;
+  _offline = off;
+  const badge = document.getElementById('offline-badge');
+  if (badge) badge.classList.toggle('show', off);
+}
+
+// List metadata for all books (no bytes). Network-first with a snapshot
+// fallback so the shelf survives flaky connections and cold offline starts.
 async function dbAll(): Promise<BookMeta[]> {
-  const res = await api('/books');
-  if (!res.ok) return [];
-  const { books } = await res.json();
-  return books as BookMeta[];
+  const cache = await caches.open(DATA_CACHE);
+  try {
+    const res = await api('/books');
+    if (!res.ok) throw new ApiNetworkError('list ' + res.status);
+    const body = await res.json();
+    await cache.put('/data-store/books', new Response(JSON.stringify(body))).catch(() => {});
+    return body.books as BookMeta[];
+  } catch (e) {
+    if (e instanceof ApiAuthError) throw e;     // real logout — no fallback
+    const hit = await cache.match('/data-store/books');
+    if (hit) { setOffline(true); return (await hit.json()).books as BookMeta[]; }
+    throw e;
+  }
 }
 
 // Persist metadata. If the book carries fresh `data`, upload the bytes to S3.
@@ -102,26 +202,40 @@ async function dbPut(b: Book): Promise<void> {
   }
 }
 
-// Update just the reading position (used by persistPage).
+// Update just the reading position (used by persistPage). Offline updates
+// queue locally and replay when the connection returns.
 async function dbPutProgress(b: Book): Promise<void> {
-  await api('/books/' + encodeURIComponent(b.id) + '/progress', {
-    method: 'PUT',
-    body: JSON.stringify({ currentPage: b.currentPage, lastReadAt: b.lastReadAt || Date.now() }),
-  });
+  try {
+    await api('/books/' + encodeURIComponent(b.id) + '/progress', {
+      method: 'PUT',
+      body: JSON.stringify({ currentPage: b.currentPage, lastReadAt: b.lastReadAt || Date.now() }),
+    });
+  } catch (e) {
+    if (e instanceof ApiNetworkError) { enqueueProgress(b); return; }
+    throw e;
+  }
 }
 
-// Fetch the PDF bytes for one book via a presigned URL.
+// Fetch the PDF bytes for one book: local cache first (bytes are immutable
+// per id), then the presigned URL, filling the cache for offline reading.
 async function dbGet(id: string): Promise<ArrayBuffer | null> {
+  try {
+    const hit = await (await caches.open(PDF_CACHE)).match(pdfKey(id));
+    if (hit) { touchLru(id); return hit.arrayBuffer(); }
+  } catch { /* fall through to network */ }
   const res = await api('/books/' + encodeURIComponent(id) + '/url');
   if (!res.ok) return null;
   const { url } = await res.json();
   const file = await fetch(url);
   if (!file.ok) return null;
-  return file.arrayBuffer();
+  const buf = await file.arrayBuffer();
+  cachePdf(id, buf);   // fire-and-forget; never blocks the reader
+  return buf;
 }
 
 async function dbDel(id: string): Promise<void> {
   await api('/books/' + encodeURIComponent(id), { method: 'DELETE' });
+  await evictPdf(id);
 }
 
 function stripData(b: Book): BookMeta {
@@ -131,10 +245,13 @@ function stripData(b: Book): BookMeta {
 
 // ---------- state ----------
 const LS = {
-  user: 'folio.user',
-  view: 'folio.view',
-  width: 'folio.readerWidth',
+  user: 'folium.user',
+  view: 'folium.view',
+  width: 'folium.readerWidth',
+  pdfLru: 'folium.pdfLru',
+  progressQueue: 'folium.progressQueue',
 };
+migrateLocalStorage();   // must run before viewMode/reader.width read their keys
 let books: Book[] = [];
 let viewMode: ViewMode = (localStorage.getItem(LS.view) as ViewMode) || 'shelf';
 
@@ -167,7 +284,6 @@ function escapeHtml(s: string): string {
 
 // ---------- cover & ingest ----------
 async function loadDoc(data: ArrayBuffer): Promise<any> {
-  await ensureWorker();
   // pdf.js detaches the buffer; pass a copy so we keep the original.
   // standardFontDataUrl/cMapUrl let it render PDFs that rely on the base-14
   // fonts or CJK character maps without embedded resources.
@@ -212,10 +328,12 @@ async function ingest(file: File | { name: string; buf: ArrayBuffer }): Promise<
       addedAt: Date.now(), lastReadAt: 0,
     };
     await dbPut(book);
+    cachePdf(book.id, buf);   // bytes are already in hand — make it offline-ready
     return book;
   } catch (e) {
     console.error('ingest failed', e);
-    toast('Could not read “' + (file as any).name + '”');
+    if (e instanceof ApiNetworkError) toast('You’re offline — try adding books when you’re back online');
+    else toast('Could not read “' + (file as any).name + '”');
     return null;
   }
 }
@@ -242,13 +360,14 @@ const ICON = {
 };
 
 function coverMarkup(b: Book): string {
+  const offdot = offlineIds.has(b.id) ? '<span class="offdot" title="Available offline"></span>' : '';
   if (b.cover) {
-    return `<div class="cover" style="background-image:url('${b.cover}')"><span class="spine"></span>` +
+    return `<div class="cover" style="background-image:url('${b.cover}')"><span class="spine"></span>${offdot}` +
       (b.lastReadAt ? `<span class="pct">${pct(b)}%</span>` : '') +
       `<button class="del" data-del="${b.id}" title="Remove">${ICON.trash}</button></div>`;
   }
   const initials = (b.author || '').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
-  return `<div class="cover"><span class="spine"></span>
+  return `<div class="cover"><span class="spine"></span>${offdot}
       <div class="gen-cover">
         <div class="gt">${escapeHtml(b.title)}</div>
         <div class="grule"></div>
@@ -327,7 +446,7 @@ function renderLibrary(): void {
     body.innerHTML = `<div class="empty">
       <div class="ic">❦</div>
       <h3>Your shelves are empty</h3>
-      <p>Add a PDF to begin your collection. Everything stays privately on this device.</p>
+      <p>Add a PDF to begin your collection. Your shelf follows you to any device.</p>
       <button class="mast-btn brass" id="empty-add" style="margin:0 auto">Add your first book</button>
     </div>`;
     const ea = document.getElementById('empty-add');
@@ -360,8 +479,13 @@ function wireLibrary(): void {
 async function confirmDelete(id: string): Promise<void> {
   const b = books.find(x => x.id === id);
   if (!b) return;
-  if (!window.confirm('Remove “' + b.title + '” from your library?\nThis deletes the file from this device.')) return;
-  await dbDel(id);
+  if (!window.confirm('Remove “' + b.title + '” from your library?\nThis removes the book from your shelf.')) return;
+  try {
+    await dbDel(id);
+  } catch (e) {
+    if (e instanceof ApiNetworkError) { toast('You’re offline — try again when you’re back online'); return; }
+    throw e;
+  }
   books = books.filter(x => x.id !== id);
   renderLibrary();
   toast('Removed from library');
@@ -415,7 +539,9 @@ async function openBook(id: string): Promise<void> {
     reader.doc = await loadDoc(bytes);
     await renderPage(reader.page, false);
   } catch (e) {
-    console.error(e); toast('Failed to load this PDF');
+    console.error(e);
+    if (e instanceof ApiNetworkError) toast('This book isn’t downloaded on this device');
+    else toast('Failed to load this PDF');
   }
   el('r-loading').classList.add('hidden');
 }
@@ -666,6 +792,13 @@ function wireAuth(): void {
   el('btn-logout').addEventListener('click', async () => {
     try { await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' }); } catch {}
     localStorage.removeItem(LS.user);
+    // Logout means "this device is no longer mine": drop everything local.
+    localStorage.removeItem(LS.pdfLru);
+    localStorage.removeItem(LS.progressQueue);
+    try {
+      await Promise.all([caches.delete(PDF_CACHE), caches.delete(DATA_CACHE), caches.delete(SHARED_CACHE)]);
+    } catch {}
+    offlineIds = new Set();
     el('app').classList.add('hidden');
     el('login').classList.remove('hidden');
     el('dropdown').classList.add('hidden');
@@ -709,10 +842,110 @@ let booted = false;
 async function boot(): Promise<void> {
   if (booted) { renderLibrary(); return; }
   booted = true;
+  flushProgressQueue();   // replay page turns queued while offline
+  await refreshOfflineIds();
   try {
     books = (await dbAll()) as unknown as Book[];
-  } catch (e) { console.error('api error', e); books = []; }
+  } catch (e) {
+    console.error('api error', e);
+    books = [];
+    booted = false;       // first-run offline: let a later 'online' event retry
+  }
   renderLibrary();
+  await handleLaunchParams();
+}
+
+// Deep links: ?continue=1 (app shortcut) and ?shared=1 (share_target redirect).
+// Runs after boot so it only acts once the user is authenticated.
+async function handleLaunchParams(): Promise<void> {
+  const params = new URLSearchParams(location.search);
+  if (!params.has('continue') && !params.has('shared')) return;
+  history.replaceState(null, '', '/');
+  if (params.has('shared')) await drainSharedCache();
+  if (params.has('continue')) {
+    const last = books.filter(b => b.lastReadAt > 0).sort((a, b) => b.lastReadAt - a.lastReadAt)[0];
+    if (last) openBook(last.id);
+  }
+}
+
+// PDFs received via the Android share sheet wait in the shared cache (put
+// there by the service worker) until someone is signed in to shelve them.
+async function drainSharedCache(): Promise<void> {
+  try {
+    const cache = await caches.open(SHARED_CACHE);
+    const keys = await cache.keys();
+    if (!keys.length) return;
+    toast(keys.length === 1 ? 'Shelving your shared book…' : 'Shelving ' + keys.length + ' shared books…');
+    for (const req of keys) {
+      const res = await cache.match(req);
+      if (!res) continue;
+      const name = decodeURIComponent(res.headers.get('x-file-name') || '') || 'Shared.pdf';
+      const buf = await res.arrayBuffer();
+      const b = await ingest({ name, buf });
+      if (b) books.unshift(b);
+      await cache.delete(req);
+    }
+    renderLibrary();
+    toast('Added to your library');
+  } catch (e) { console.warn('shared intake failed', e); }
+}
+
+// ============================================================
+//  PWA
+// ============================================================
+function wirePwa(): void {
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(e => console.warn('sw registration failed', e));
+    });
+    // A controller swap after the first one means a new version took over.
+    let hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (hadController) toast('Folium Café has been updated');
+      hadController = true;
+    });
+  }
+  // Ask Android to protect our caches (PDFs) from storage-pressure eviction.
+  navigator.storage?.persist?.().catch(() => {});
+
+  window.addEventListener('online', () => {
+    flushProgressQueue();
+    if (!el('app').classList.contains('hidden')) { booted = false; boot(); }
+  });
+
+  let deferredInstall: any = null;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    if (window.matchMedia('(display-mode: standalone)').matches) return;
+    e.preventDefault();
+    deferredInstall = e;
+    el('btn-install').classList.remove('hidden');
+  });
+  el('btn-install').addEventListener('click', async () => {
+    if (!deferredInstall) return;
+    deferredInstall.prompt();
+    try { await deferredInstall.userChoice; } catch { /* dismissed */ }
+    deferredInstall = null;
+    el('btn-install').classList.add('hidden');
+    el('dropdown').classList.add('hidden');
+  });
+  window.addEventListener('appinstalled', () => {
+    el('btn-install').classList.add('hidden');
+    toast('Folium Café is on your home screen');
+  });
+}
+
+function migrateLocalStorage(): void {
+  // one-time folio.* -> folium.* key migration (delete after a few releases)
+  const map: Record<string, string> = {
+    'folio.user': 'folium.user',
+    'folio.view': 'folium.view',
+    'folio.readerWidth': 'folium.readerWidth',
+  };
+  for (const [oldKey, newKey] of Object.entries(map)) {
+    const old = localStorage.getItem(oldKey);
+    if (old !== null && localStorage.getItem(newKey) === null) localStorage.setItem(newKey, old);
+    localStorage.removeItem(oldKey);
+  }
 }
 
 function init(): void {
@@ -727,6 +960,7 @@ function init(): void {
   wireLibrary();
   wireUpload();
   wireReader();
+  wirePwa();
   // restore session
   const saved = localStorage.getItem(LS.user);
   if (saved) {
