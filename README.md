@@ -9,7 +9,7 @@ on a classic bookshelf interface.
 
 ## Features
 
-- **Classy login gate** — remembers you on this device
+- **Reading cards** — personal accounts (Cognito): pick a handle, verify your email, stay signed in for 90 days
 - **Three library layouts**, switchable live: Shelf (covers on wooden planks), Covers (gallery grid), List (editorial rows with progress and last-read time)
 - **Real PDF rendering** in the browser via pdf.js — fit-to-width with Comfort ↔ Full toggle and zoom
 - **Page memory per book** — resumes exactly where you left off, synced across devices, with a "Continue reading" hero
