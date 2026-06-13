@@ -335,11 +335,22 @@ button{font-family:inherit;cursor:pointer}
 .media-stage.is-audio{min-height:40vh}
 .media-stage.is-audio audio{width:min(560px,100%)}
 
+/* reflow format (epub): a paginated single column rendered into an iframe by
+   epub.js. The stage needs a bounded height for paginated flow; the view is
+   capped to a comfortable reading width and matted like a page. */
+.epub-stage{width:min(820px,100%);height:calc(100vh - 200px);min-height:60vh;
+  background:var(--paper,#fdfaf2);border-radius:2px;padding:8px 10px;
+  box-shadow:0 24px 60px -18px rgba(0,0,0,.7),0 2px 0 rgba(255,255,255,.05)}
+.epub-view{width:100%;height:100%}
+@media (max-width:640px){.epub-stage{height:calc(100vh - 168px);padding:4px 2px}}
+
 /* capability gating: hide reader chrome a format can't use */
 #reader.no-capture #r-snap{display:none}
 #reader.no-zoom .seg.zoom{display:none}
 #reader.no-paged .pager,
 #reader.no-paged .rnav{display:none}
+/* reflow (epub) has no numeric pager, but keeps the floating prev/next arrows */
+#reader.no-paged.is-reflow .rnav{display:grid}
 
 /* reading progress strip */
 .rprogress{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(0,0,0,.3);z-index:6}

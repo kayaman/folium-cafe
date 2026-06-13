@@ -63,8 +63,11 @@ async function cacheFirst(cacheName: string, req: Request): Promise<Response> {
 sw.addEventListener('fetch', (e: FetchEvent) => {
   const url = new URL(e.request.url);
 
-  // share_target: stash the shared PDFs, bounce to the app. The POST never
-  // reaches CloudFront (which only allows GET on the site behavior).
+  // share_target: stash the shared files, bounce to the app. The POST never
+  // reaches CloudFront (which only allows GET on the site behavior). The form
+  // field stays named `pdfs` for manifest compatibility, but the content may be
+  // any supported format — preserve each file's real type/name so the app can
+  // route it by extension on intake (it no longer assumes PDF).
   if (e.request.method === 'POST' && url.pathname === '/share-target') {
     e.respondWith((async () => {
       try {
@@ -74,7 +77,10 @@ sw.addEventListener('fetch', (e: FetchEvent) => {
         for (const f of files) {
           await cache.put(
             '/shared/' + Date.now() + '-' + Math.random().toString(16).slice(2) + '-' + encodeURIComponent(f.name),
-            new Response(f, { headers: { 'content-type': 'application/pdf', 'x-file-name': encodeURIComponent(f.name) } })
+            new Response(f, { headers: {
+              'content-type': f.type || 'application/octet-stream',
+              'x-file-name': encodeURIComponent(f.name),
+            } })
           );
         }
       } catch (err) {

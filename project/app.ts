@@ -227,7 +227,7 @@ const EN = {
   'settings.done': 'Done',
   'toast.offlineAdd': 'You’re offline — try adding books when you’re back online',
   'toast.cantRead': 'Could not read “{name}”',
-  'toast.unsupported': 'Unsupported file type — try PDF, CBZ, TXT, Markdown, audio or video',
+  'toast.unsupported': 'Unsupported file type — try PDF, EPUB, CBZ, TXT, Markdown, audio or video',
   'toast.shelving.one': 'Shelving your book…',
   'toast.shelving.other': 'Shelving {n} books…',
   'toast.shelvingShared.one': 'Shelving your shared book…',
@@ -337,7 +337,7 @@ const PT: Record<MsgKey, string> = {
   'settings.done': 'Concluído',
   'toast.offlineAdd': 'Você está offline — tente adicionar livros quando voltar a ficar online',
   'toast.cantRead': 'Não foi possível ler “{name}”',
-  'toast.unsupported': 'Tipo de arquivo não suportado — tente PDF, CBZ, TXT, Markdown, áudio ou vídeo',
+  'toast.unsupported': 'Tipo de arquivo não suportado — tente PDF, EPUB, CBZ, TXT, Markdown, áudio ou vídeo',
   'toast.shelving.one': 'Colocando seu livro na estante…',
   'toast.shelving.other': 'Colocando {n} livros na estante…',
   'toast.shelvingShared.one': 'Colocando o livro compartilhado na estante…',
@@ -446,7 +446,7 @@ const ES: Record<MsgKey, string> = {
   'settings.done': 'Listo',
   'toast.offlineAdd': 'Estás sin conexión: intenta añadir libros cuando vuelvas a estar en línea',
   'toast.cantRead': 'No se pudo leer “{name}”',
-  'toast.unsupported': 'Tipo de archivo no compatible — prueba PDF, CBZ, TXT, Markdown, audio o vídeo',
+  'toast.unsupported': 'Tipo de archivo no compatible — prueba PDF, EPUB, CBZ, TXT, Markdown, audio o vídeo',
   'toast.shelving.one': 'Colocando tu libro en el estante…',
   'toast.shelving.other': 'Colocando {n} libros en el estante…',
   'toast.shelvingShared.one': 'Colocando el libro compartido en el estante…',
@@ -1102,6 +1102,50 @@ async function ingestCbz(name: string, buf: ArrayBuffer): Promise<Book> {
   };
 }
 
+// EPUB ingest: open with epub.js to lift Title/Author from the OPF metadata and
+// a best-effort cover from coverUrl(). numPages isn't meaningful for reflow → 1.
+// Position starts at the book's beginning (progress unset); the bytes are
+// uploaded with application/epub+zip and cached locally like a PDF.
+async function ingestEpub(name: string, buf: ArrayBuffer): Promise<Book> {
+  const ePub = await loadEpubLib();
+  let title = prettifyName(name.replace(/\.epub$/i, '')), author = '';
+  let cover: string | null = null;
+  let epubBook: any = null;
+  try {
+    epubBook = ePub(buf.slice(0));   // copy: epub.js/JSZip may retain the buffer
+    await epubBook.ready;
+    const meta = await epubBook.loaded.metadata;
+    if (meta?.title && String(meta.title).trim()) title = String(meta.title).trim();
+    if (meta?.creator && String(meta.creator).trim()) author = String(meta.creator).trim();
+    cover = await epubCover(epubBook);
+  } catch { /* metadata/cover are best-effort — keep the prettified name */ }
+  try { epubBook?.destroy?.(); } catch { /* ignore */ }
+  return {
+    id: uid(), title, author, fileName: name, data: buf,
+    numPages: 1, currentPage: 1, cover,
+    addedAt: Date.now(), lastReadAt: 0, format: 'epub',
+  };
+}
+
+// Best-effort EPUB cover: epub.js coverUrl() yields a blob URL for the OPF cover
+// image; decode it to an <img> and render a 320px-tall JPEG dataURL (same shape
+// as renderImageCover). Returns null if the book has no cover or decoding fails.
+async function epubCover(epubBook: any): Promise<string | null> {
+  try {
+    const url: string | null = await epubBook.coverUrl();
+    if (!url) return null;
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = () => reject(new Error('cover decode failed'));
+      im.src = url;
+    });
+    const out = renderImageCover(img);
+    try { URL.revokeObjectURL(url); } catch { /* not an object URL */ }
+    return out;
+  } catch { return null; }
+}
+
 // Text/Markdown ingest: a single-"page" scroll doc; for markdown, derive the
 // title from the first H1 if present. No cover (a generated text cover renders).
 function ingestText(name: string, buf: ArrayBuffer, format: 'txt' | 'md'): Book {
@@ -1132,7 +1176,7 @@ function ingestMedia(name: string, format: 'audio' | 'video', mime?: string): Bo
   };
 }
 
-async function ingest(file: File | { name: string; buf: ArrayBuffer }): Promise<Book | null> {
+async function ingest(file: File | { name: string; buf: ArrayBuffer; type?: string }): Promise<Book | null> {
   const name = (file as any).name as string;
   try {
     const buf = (file as any).buf
@@ -1143,6 +1187,7 @@ async function ingest(file: File | { name: string; buf: ArrayBuffer }): Promise<
     let book: Book;
     switch (format) {
       case 'cbz': book = await ingestCbz(name, buf); break;
+      case 'epub': book = await ingestEpub(name, buf); break;
       case 'txt': book = ingestText(name, buf, 'txt'); break;
       case 'md': book = ingestText(name, buf, 'md'); break;
       case 'audio': book = ingestMedia(name, 'audio', mime); break;
@@ -1170,7 +1215,7 @@ async function ingest(file: File | { name: string; buf: ArrayBuffer }): Promise<
 
 async function addFiles(files: FileList | File[]): Promise<void> {
   // Accept any format ingest understands this phase; reject the rest with a hint.
-  const SUPPORTED = new Set<DocFormat>(['pdf', 'cbz', 'txt', 'md', 'audio', 'video']);
+  const SUPPORTED = new Set<DocFormat>(['pdf', 'cbz', 'epub', 'txt', 'md', 'audio', 'video']);
   const arr = Array.from(files).filter(f => {
     const fmt = detectFormat(f.name, f.type);
     return fmt != null && SUPPORTED.has(fmt);
@@ -1805,6 +1850,149 @@ class MediaAdapter implements DocAdapter {
   }
 }
 
+// Lazily load epub.js (and its JSZip dependency, which the UMD build reads off
+// window.JSZip at evaluation time — so jszip MUST be injected first). Both are
+// vendored, not precached; the VENDOR_CACHE rule keeps them offline-ready after
+// first use. Returns window.ePub once available.
+async function loadEpubLib(): Promise<any> {
+  await loadVendor('/vendor/jszip.min.js');   // must resolve before epub.min.js evaluates
+  await loadVendor('/vendor/epub.min.js');
+  return (window as any).ePub;
+}
+
+// An EPUB: epub.js renders a reflowable, paginated single column into an iframe.
+// No canvas, no clean page count: position is a CFI persisted on relocation and
+// restored on open. Text selection lives inside the iframe, so it's surfaced via
+// rendition.on('selected') into the existing share-text card. Locations (for the
+// progress percentage) are generated lazily in the background after open.
+class EpubAdapter implements DocAdapter {
+  readonly format: DocFormat = 'epub';
+  readonly mode: DocMode = 'reflow';
+  readonly caps: DocCaps = {
+    paged: false,            // no numeric page input — CFI-positioned
+    canvasPages: false,      // no canvas → region capture + text-layer code inert
+    textSelectable: true,    // via rendition 'selected', surfaced as a share card
+    regionClippable: false,  // no persisted highlights for epub
+    timeMedia: false,
+    reflowable: true,
+    zoomable: false,
+  };
+  readonly total = 1;        // reflow has no clean page count; nav is prev/next
+  private epub: any;
+  private rendition: any = null;
+  private stage: HTMLElement | null = null;
+  private displayed = false;
+  private cfi: string | null;
+  private percent = 0;
+  private locationsReady = false;
+  private saveTimer = 0 as any;
+  private onRelocated = (loc: any) => this.handleRelocated(loc);
+  private onSelected = (cfiRange: string, contents: any) => this.handleSelected(cfiRange, contents);
+
+  constructor(epub: any, startCfi: string | null) {
+    this.epub = epub;
+    this.cfi = startCfi;
+  }
+
+  async render(pos: DocPos, ctx: RenderCtx, _keepScroll: boolean): Promise<void> {
+    const token = ctx.token;
+    await this.epub.ready;
+    if (token !== reader.renderToken) return; // superseded (closed / re-opened)
+
+    if (!this.rendition) {
+      const col = ctx.col;
+      col.innerHTML = '';
+      const stage = document.createElement('div');
+      stage.className = 'epub-stage';
+      const viewEl = document.createElement('div');
+      viewEl.id = 'epub-view';
+      viewEl.className = 'epub-view';
+      stage.appendChild(viewEl);
+      col.appendChild(stage);
+      this.stage = stage;
+
+      this.rendition = this.epub.renderTo(viewEl, {
+        width: '100%',
+        height: '100%',
+        flow: 'paginated',
+        spread: 'none',
+        allowScriptedContent: false,
+      });
+      this.rendition.on('relocated', this.onRelocated);
+      this.rendition.on('selected', this.onSelected);
+      await this.rendition.display(pos.cfi || this.cfi || undefined);
+      this.displayed = true;
+      this.generateLocations();
+    } else {
+      // A re-render (e.g. width/resize change): just re-display the current spot.
+      await this.rendition.display(this.cfi || pos.cfi || undefined);
+    }
+  }
+
+  // Generate locations in the background so the progress bar can show a real
+  // percentage. Best-effort and non-blocking — page turns work without it.
+  private generateLocations(): void {
+    try {
+      this.epub.locations.generate(1024).then(() => {
+        this.locationsReady = true;
+        if (this.cfi) {
+          this.percent = this.safePercent(this.cfi);
+          el('r-progress-bar').style.width = (this.percent * 100) + '%';
+        }
+      }).catch(() => {});
+    } catch { /* locations are best-effort */ }
+  }
+
+  private safePercent(cfi: string): number {
+    try {
+      const p = this.epub.locations.percentageFromCfi(cfi);
+      return Number.isFinite(p) ? Math.min(Math.max(p, 0), 1) : this.percent;
+    } catch { return this.percent; }
+  }
+
+  private handleRelocated(loc: any): void {
+    const cfi = loc?.start?.cfi;
+    if (!cfi) return;
+    this.cfi = cfi;
+    if (this.locationsReady) this.percent = this.safePercent(cfi);
+    else if (typeof loc?.start?.percentage === 'number') this.percent = Math.min(Math.max(loc.start.percentage, 0), 1);
+    setReaderPos({ cfi });
+    updateReaderChrome();
+    // Coalesce: relocated fires on every page turn; debounce the persist.
+    window.clearTimeout(this.saveTimer);
+    this.saveTimer = window.setTimeout(() => persistPos(), 500);
+  }
+
+  // Iframe selections never reach the top document's selectionchange handler, so
+  // epub.js hands us the selected range here. Resolve it to a string and surface
+  // the existing Share toolbar (no rects → text-card share only).
+  private handleSelected(cfiRange: string, contents: any): void {
+    let text = '';
+    try { text = (contents?.window?.getSelection?.()?.toString() || '').trim(); } catch { /* cross-frame */ }
+    if (!text) return;
+    surfaceTextShare(text, cfiRange, contents);
+  }
+
+  next(): void { this.rendition?.next?.(); }
+  prev(): void { this.rendition?.prev?.(); }
+
+  toBarPercent(_pos: DocPos): number { return Math.round(this.percent * 100); }
+  posLabel(_pos: DocPos): { current: string; total: string } {
+    return { current: Math.round(this.percent * 100) + '%', total: '' };
+  }
+  currentCanvas(): HTMLCanvasElement | null { return null; }
+  destroy(): void {
+    window.clearTimeout(this.saveTimer);
+    try {
+      this.rendition?.off?.('relocated', this.onRelocated);
+      this.rendition?.off?.('selected', this.onSelected);
+      this.rendition?.destroy?.();
+    } catch { /* already torn down */ }
+    try { this.epub?.destroy?.(); } catch { /* ignore */ }
+    this.rendition = null; this.epub = null; this.stage = null;
+  }
+}
+
 // Build the right adapter for a book's format. Canvas/text formats parse `bytes`;
 // media formats stream from S3 and take a lazy presigned-URL getter instead
 // (openBook passes null bytes + urlFor for those — see makeAdapter call there).
@@ -1815,6 +2003,12 @@ async function makeAdapter(book: Book, bytes: ArrayBuffer | null, urlFor?: () =>
       return new PdfAdapter(await loadDoc(bytes!));
     case 'cbz':
       return new CbzAdapter(await unzipCbz(bytes!));
+    case 'epub': {
+      const ePub = await loadEpubLib();
+      const epubBook = ePub(bytes!);   // ArrayBuffer ctor
+      const startCfi = book.progress?.kind === 'cfi' ? String(book.progress.value) : null;
+      return new EpubAdapter(epubBook, startCfi);
+    }
     case 'txt':
     case 'md':
       return new ScrollTextAdapter(new TextDecoder('utf-8').decode(bytes!), format);
@@ -1896,6 +2090,9 @@ async function openBook(id: string): Promise<void> {
     } else if (reader.adapter.mode === 'media') {
       const stored = b.progress?.kind === 'seconds' ? Number(b.progress.value) : 0;
       setReaderPos({ seconds: Number.isFinite(stored) ? stored : 0 });
+    } else if (reader.adapter.mode === 'reflow') {
+      const stored = b.progress?.kind === 'cfi' ? String(b.progress.value) : '';
+      setReaderPos(stored ? { cfi: stored } : {});
     }
     // Gate reader chrome on the adapter's capabilities. For PDF every cap is on,
     // so no class is added and the UI is unchanged.
@@ -1904,6 +2101,9 @@ async function openBook(id: string): Promise<void> {
     rd.classList.toggle('no-zoom', !caps.zoomable);
     rd.classList.toggle('no-paged', !caps.paged);
     rd.classList.toggle('text-share-only', !caps.textSelectable);
+    // Reflow (epub): no numeric pager, but the floating prev/next arrows stay
+    // (CSS re-shows .rnav under .is-reflow even though .no-paged is set).
+    rd.classList.toggle('is-reflow', reader.adapter.mode === 'reflow');
     // An offline clip load is fine (empty); a real 401 must not leave the
     // reader open behind the login screen.
     reader.clips = await clipsAll(id).catch(e => { if (e instanceof ApiAuthError) throw e; return []; });
@@ -2014,10 +2214,14 @@ function updateReaderChrome(): void {
   const label = ad.posLabel(reader.pos);
   (el('r-page-input') as HTMLInputElement).value = label.current;
   el('r-progress-bar').style.width = ad.toBarPercent(reader.pos) + '%';
-  (el('r-prev') as HTMLButtonElement).disabled = reader.page <= 1;
-  (el('r-next') as HTMLButtonElement).disabled = reader.page >= b.numPages;
-  (el('r-prev-s') as HTMLButtonElement).disabled = reader.page <= 1;
-  (el('r-next-s') as HTMLButtonElement).disabled = reader.page >= b.numPages;
+  // Reflow (epub) has no page bounds — prev/next are always live (epub.js no-ops
+  // at the book edges). Paged formats disable the arrows at the first/last page.
+  const atStart = ad.mode === 'reflow' ? false : reader.page <= 1;
+  const atEnd = ad.mode === 'reflow' ? false : reader.page >= b.numPages;
+  (el('r-prev') as HTMLButtonElement).disabled = atStart;
+  (el('r-next') as HTMLButtonElement).disabled = atEnd;
+  (el('r-prev-s') as HTMLButtonElement).disabled = atStart;
+  (el('r-next-s') as HTMLButtonElement).disabled = atEnd;
 }
 
 // Persist the current reader position. Paged/canvas formats write the page
@@ -2030,6 +2234,8 @@ function persistPos(): void {
     b.progress = { kind: 'fraction', value: Math.min(Math.max(reader.pos.fraction ?? 0, 0), 1) };
   } else if (reader.adapter?.mode === 'media') {
     b.progress = { kind: 'seconds', value: Math.max(0, reader.pos.seconds ?? 0) };
+  } else if (reader.adapter?.mode === 'reflow') {
+    if (reader.pos.cfi) b.progress = { kind: 'cfi', value: reader.pos.cfi };
   } else if (reader.pos.page != null) {
     b.currentPage = reader.pos.page;
   }
@@ -2050,6 +2256,13 @@ function toggleMediaPlayback(): void {
 
 function go(delta: number): void {
   if (!reader.book || !reader.adapter) return;
+  // Reflow (epub): no page numbers — drive epub.js prev/next directly. The
+  // adapter's 'relocated' handler updates pos/chrome and persists the new CFI.
+  if (reader.adapter.mode === 'reflow') {
+    const ad = reader.adapter as EpubAdapter;
+    if (delta > 0) ad.next(); else if (delta < 0) ad.prev();
+    return;
+  }
   if (reader.adapter.mode !== 'canvas') return;   // scroll formats don't page
   const next = reader.page + delta;
   if (next < 1 || next > reader.book.numPages) return;
@@ -2061,6 +2274,17 @@ function go(delta: number): void {
 // cooldown stops trackpad momentum from skipping multiple pages per gesture.
 function onReaderWheel(e: WheelEvent): void {
   if (!reader.adapter || !reader.book) return;
+  // Reflow (epub): one wheel notch = one page turn, debounced. The iframe owns
+  // its own layout, so drive paging explicitly rather than relying on it.
+  if (reader.adapter.mode === 'reflow') {
+    const down = e.deltaY > 0, up = e.deltaY < 0;
+    if (!down && !up) return;
+    e.preventDefault();
+    if (e.timeStamp - reader.wheelLock < 450) return;
+    reader.wheelLock = e.timeStamp;
+    go(down ? 1 : -1);
+    return;
+  }
   if (reader.adapter.mode !== 'canvas') return;   // scroll formats: native scroll
   if (reader.capturing) { e.preventDefault(); return; }   // no paging mid-capture
   const down = e.deltaY > 0, up = e.deltaY < 0;
@@ -2313,6 +2537,35 @@ function onTextSelection(): void {
   positionSelToolbar(client[0]);
 }
 
+// Surface the Share toolbar for a selection made inside an EPUB iframe (epub.js
+// 'selected'). There's no canvas and no top-document selection, so we carry the
+// text with empty rects (text-card share only) and position the toolbar over the
+// selection by translating the iframe-local client rect into page coordinates.
+function surfaceTextShare(text: string, cfiRange: string, contents: any): void {
+  if (!text) { clearSelToolbar(); return; }
+  pendingSel = { rects: [], text, page: reader.page };
+  el('sel-highlight').classList.add('hidden');   // epub: no persisted highlights
+  // Best-effort positioning: map the iframe-local selection rect to viewport
+  // coords via the iframe's offset. Fall back to the reader stage centre.
+  let placed = false;
+  try {
+    const win = contents?.window || contents?.document?.defaultView;
+    const sel = win?.getSelection?.();
+    const range = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
+    const r = range?.getClientRects?.()[0] || range?.getBoundingClientRect?.();
+    const frame: HTMLIFrameElement | null = (contents?.document?.defaultView?.frameElement as HTMLIFrameElement) || el('r-col').querySelector('iframe');
+    if (r && frame) {
+      const fb = frame.getBoundingClientRect();
+      positionSelToolbar(new DOMRect(fb.left + r.left, fb.top + r.top, r.width, r.height));
+      placed = true;
+    }
+  } catch { /* cross-frame measurement can throw — fall through */ }
+  if (!placed) {
+    const sb = el('r-stage').getBoundingClientRect();
+    positionSelToolbar(new DOMRect(sb.left + sb.width / 2 - 80, sb.top + 80, 160, 24));
+  }
+}
+
 function downloadBlob(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -2556,6 +2809,12 @@ function wireReader(): void {
     // Scroll formats: leave paging/scroll keys to the browser's native handling
     // (Space/PageDown scroll the column); only the global shortcuts below apply.
     const paged = reader.adapter ? reader.adapter.mode === 'canvas' : true;
+    // Reflow (epub): Left/Right (and Space/PageUp/PageDown) turn pages via the
+    // adapter; don't rely on the iframe having focus. Other keys fall through.
+    if (reader.adapter?.mode === 'reflow') {
+      if (k === 'ArrowRight' || k === 'PageDown' || k === ' ') { e.preventDefault(); go(1); return; }
+      if (k === 'ArrowLeft' || k === 'PageUp') { e.preventDefault(); go(-1); return; }
+    }
     // Media: Space toggles play/pause (native controls handle seeking). Other
     // keys fall through to global shortcuts (f/Escape) below.
     if (!paged && reader.adapter?.mode === 'media' && k === ' ') {
@@ -2890,8 +3149,10 @@ async function handleLaunchParams(): Promise<void> {
   }
 }
 
-// PDFs received via the Android share sheet wait in the shared cache (put
-// there by the service worker) until someone is signed in to shelve them.
+// Files received via the OS share sheet wait in the shared cache (put there by
+// the service worker) until someone is signed in to shelve them. Any supported
+// format is accepted: the stored Response carries the file's real content-type,
+// so ingest() routes it by detectFormat (extension first, MIME as tiebreaker).
 async function drainSharedCache(): Promise<void> {
   try {
     const cache = await caches.open(SHARED_CACHE);
@@ -2901,9 +3162,10 @@ async function drainSharedCache(): Promise<void> {
     for (const req of keys) {
       const res = await cache.match(req);
       if (!res) continue;
-      const name = decodeURIComponent(res.headers.get('x-file-name') || '') || 'Shared.pdf';
+      const name = decodeURIComponent(res.headers.get('x-file-name') || '') || 'Shared';
+      const type = res.headers.get('content-type') || undefined;
       const buf = await res.arrayBuffer();
-      const b = await ingest({ name, buf });
+      const b = await ingest({ name, buf, type });
       if (b) books.unshift(b);
       await cache.delete(req);
     }
