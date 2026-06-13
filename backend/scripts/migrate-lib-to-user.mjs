@@ -59,7 +59,7 @@ for (const item of books) {
   if (!srcExists) { console.log(`! ${srcKey} missing in S3 — skipping object`); continue; }
   if (apply) {
     await s3.send(new CopyObjectCommand({
-      Bucket: BUCKET, Key: dstKey, CopySource: `${BUCKET}/${encodeURIComponent(srcKey)}`,
+      Bucket: BUCKET, Key: dstKey, CopySource: `${BUCKET}/${encodeURI(srcKey)}`,
     }));
     console.log(`+ ${dstKey} object copied`);
   } else console.log(`~ ${dstKey} object would copy`);
