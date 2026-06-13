@@ -19,7 +19,8 @@ const s3 = new S3Client({});
 
 const TABLE = process.env.TABLE_NAME;
 const BUCKET = process.env.PDF_BUCKET;
-const sub = process.argv[process.argv.indexOf('--sub') + 1];
+const subIdx = process.argv.indexOf('--sub');
+const sub = subIdx === -1 ? null : process.argv[subIdx + 1];
 const apply = process.argv.includes('--apply');
 
 if (!TABLE || !BUCKET || !sub || sub.startsWith('--')) {
