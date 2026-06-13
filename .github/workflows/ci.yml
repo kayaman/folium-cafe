@@ -8,6 +8,12 @@ permissions:
   id-token: write
   contents: read
 
+# Run the bundled JS actions (checkout, setup-node, configure-aws-credentials,
+# setup-terraform) on Node 24. Their pinned majors still ship a Node 20 runtime,
+# which GitHub forces to Node 24 on 2026-06-16 and removes on 2026-09-16.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   build-and-plan:
     runs-on: ubuntu-latest
