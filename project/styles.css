@@ -318,6 +318,21 @@ button{font-family:inherit;cursor:pointer}
   border-radius:1px;max-width:100%}
 .rpage canvas{display:block;border-radius:1px}
 
+/* scroll-text formats (txt/md): one readable column, no canvas page */
+.doc-scroll{width:min(820px,100%);background:var(--paper,#fdfaf2);color:var(--ink,#2a2018);
+  padding:46px 40px 96px;border-radius:2px;
+  box-shadow:0 24px 60px -18px rgba(0,0,0,.7),0 2px 0 rgba(255,255,255,.05)}
+.doc-scroll.markdown-body{font-family:var(--read);font-size:18px;line-height:1.75}
+.doc-plain pre{white-space:pre-wrap;word-wrap:break-word;margin:0;
+  font-family:var(--read);font-size:17px;line-height:1.7;color:inherit}
+@media (max-width:640px){.doc-scroll{padding:30px 20px 80px}}
+
+/* capability gating: hide reader chrome a format can't use */
+#reader.no-capture #r-snap{display:none}
+#reader.no-zoom .seg.zoom{display:none}
+#reader.no-paged .pager,
+#reader.no-paged .rnav{display:none}
+
 /* reading progress strip */
 .rprogress{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(0,0,0,.3);z-index:6}
 .rprogress > i{display:block;height:100%;background:linear-gradient(90deg,var(--brass-hi),var(--brass));transition:width .2s}
@@ -467,3 +482,83 @@ body{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-ri
   text-transform:uppercase;letter-spacing:.08em;font-size:12px;font-weight:600;padding:8px 14px;border-radius:5px}
 #sel-toolbar button:hover{background:rgba(0,0,0,.18)}
 #sel-toolbar #sel-highlight{color:var(--brass-hi)}
+
+/* ============================================================
+   NOTES — library cover badge + standalone editor
+   ============================================================ */
+/* note covers reuse .gen-cover; tint toward green/brass + a corner badge */
+.note-cover .gen-cover{background:linear-gradient(160deg,#f3ecd9,#e7dec4)}
+.note-cover .gen-cover .ga{font-style:normal;text-transform:uppercase;letter-spacing:.14em;
+  font-size:9px;color:var(--green);font-family:var(--display);font-weight:600}
+.note-badge{position:absolute;right:6px;top:6px;z-index:2;
+  font-family:var(--display);font-weight:700;font-size:9px;letter-spacing:.08em;
+  padding:2px 6px;border-radius:3px;color:#2a1808;
+  background:linear-gradient(180deg,var(--brass-hi),var(--brass));
+  box-shadow:0 0 0 1px rgba(42,32,24,.25)}
+.row .rcv.note-cover{position:relative;background:#eee3c6}
+.row .rcv.note-cover .note-badge{right:3px;top:3px;font-size:8px;padding:1px 4px}
+
+#btn-newnote svg{width:16px;height:16px}
+.empty-actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+
+/* editor overlay — mirrors #reader */
+#note-editor{position:fixed;inset:0;z-index:36;display:none;flex-direction:column;
+  background:var(--paper);background-image:radial-gradient(120% 90% at 50% 0%,#f3ecda,#e7dec4)}
+#note-editor.show{display:flex}
+.nbar{display:flex;align-items:center;gap:14px;height:56px;padding:0 18px;flex:none;
+  background:linear-gradient(180deg,#f8f1e3,#efe3ca);
+  border-bottom:1px solid var(--rule);color:var(--ink);box-shadow:var(--shadow-1);z-index:5}
+.nbar .ico{width:38px;height:38px;border-radius:6px;border:1px solid var(--rule);
+  background:#fdfaf2;color:var(--ink-2);display:grid;place-items:center;cursor:pointer;transition:.16s}
+.nbar .ico:hover{background:rgba(110,74,41,.08);border-color:var(--wood-hi)}
+.nbar .ico svg{width:18px;height:18px}
+.nbar .note-title{flex:1;min-width:0;max-width:520px;background:transparent;border:0;outline:none;
+  font-family:var(--display);font-weight:600;font-size:18px;color:var(--ink);
+  border-bottom:1px solid transparent;padding:4px 2px;transition:border-color .16s}
+.nbar .note-title:focus{border-bottom-color:var(--brass)}
+.nbar .note-title::placeholder{color:var(--muted);font-style:italic;font-weight:500}
+.nbar .nspacer{flex:1}
+.nbar .seg{display:flex;background:rgba(110,74,41,.10);border:1px solid var(--rule);border-radius:6px;padding:2px}
+.nbar .seg button{border:0;background:transparent;color:var(--ink-2);padding:6px 12px;border-radius:4px;
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.1em;font-size:10.5px;font-weight:600;cursor:pointer}
+.nbar .seg button.active{background:var(--brass);color:#2a1808}
+.nbar .note-saved{font-style:italic;font-size:12px;color:var(--muted);min-width:0;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;max-width:34vw}
+#note-delete{color:var(--leather)}
+
+.nstage{flex:1;overflow:auto;position:relative;display:flex;justify-content:center}
+.note-body{width:min(820px,100%);min-height:100%;border:0;outline:none;resize:none;
+  background:transparent;color:var(--ink);padding:38px 28px 90px;
+  font-family:var(--read);font-size:18px;line-height:1.75;letter-spacing:.005em}
+.note-body::placeholder{color:var(--muted)}
+.note-render{display:none;width:min(820px,100%);padding:38px 28px 90px}
+#note-editor.preview .note-body{display:none}
+#note-editor.preview .note-render{display:block}
+
+/* rendered markdown typography — the app's serif + comfortable measure */
+.markdown-body{font-family:var(--read);font-size:18px;line-height:1.75;color:var(--ink);word-wrap:break-word}
+.markdown-body h1,.markdown-body h2,.markdown-body h3,.markdown-body h4{
+  font-family:var(--display);font-weight:700;color:var(--leather);line-height:1.2;margin:1.4em 0 .5em}
+.markdown-body h1{font-size:30px}.markdown-body h2{font-size:24px}.markdown-body h3{font-size:20px}
+.markdown-body p{margin:0 0 1em}
+.markdown-body a{color:var(--leather-2);text-decoration:underline}
+.markdown-body strong{font-weight:600}.markdown-body em{font-style:italic}
+.markdown-body ul,.markdown-body ol{margin:0 0 1em;padding-left:1.5em}
+.markdown-body li{margin:.25em 0}
+.markdown-body blockquote{margin:0 0 1em;padding:.2em 1.1em;border-left:3px solid var(--brass);
+  color:var(--ink-2);font-style:italic;background:rgba(179,133,58,.06)}
+.markdown-body code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.88em;
+  background:rgba(110,74,41,.10);padding:.12em .4em;border-radius:3px}
+.markdown-body pre{background:#2c2218;color:#ecdcbf;padding:14px 16px;border-radius:6px;overflow:auto;margin:0 0 1em}
+.markdown-body pre code{background:transparent;padding:0;color:inherit}
+.markdown-body hr{border:0;border-top:1px solid var(--rule);margin:1.6em 0}
+.markdown-body img{max-width:100%;border-radius:3px}
+.markdown-body table{border-collapse:collapse;margin:0 0 1em}
+.markdown-body th,.markdown-body td{border:1px solid var(--rule);padding:6px 10px}
+
+@media (max-width:760px){
+  .nbar{gap:10px;padding:0 12px}
+  .nbar .note-saved{display:none}
+  #btn-newnote span{display:none}
+  .note-body,.note-render{padding:24px 18px 80px;font-size:17px}
+}

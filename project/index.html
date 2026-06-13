@@ -16,6 +16,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Folium">
 <script src="vendor/pdf.min.js"></script>
+<script src="vendor/marked.min.js"></script>
 </head>
 <body>
 
@@ -55,7 +56,8 @@
         <button data-view="list" title="Reading list" data-i18n-title="mast.listTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h12M8 12h12M8 18h12M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg><span data-i18n="mast.list">List</span></button>
       </nav>
       <button class="mast-btn brass" id="btn-upload" title="Add PDFs" data-i18n-title="mast.addTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span data-i18n="mast.add">Add books</span></button>
-      <input type="file" id="file-input" accept="application/pdf,.pdf" multiple class="hidden">
+      <button class="mast-btn" id="btn-newnote" title="Create a note" data-i18n-title="note.newTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg><span data-i18n="note.new">New note</span></button>
+      <input type="file" id="file-input" accept="application/pdf,.pdf,.cbz,.txt,.md,.markdown" multiple class="hidden">
       <div class="usermenu">
         <div class="avatar" id="avatar"><span id="avatar-initial">R</span></div>
         <div class="dropdown hidden" id="dropdown">
@@ -128,6 +130,26 @@
   <div class="rprogress"><i id="r-progress-bar"></i></div>
   <div class="zen-hint" id="zen-hint" data-i18n="rdr.zenHint">Move the cursor up to show controls · Esc to exit</div>
   <div id="r-capsel"></div>
+</section>
+
+<!-- ============ NOTE EDITOR ============ -->
+<section id="note-editor">
+  <div class="nbar" id="nbar">
+    <button class="ico" id="note-back" title="Back to library" data-i18n-title="rdr.back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>
+    <input class="note-title" id="note-title" type="text" placeholder="Untitled note" data-i18n-placeholder="note.untitled">
+    <div class="nspacer"></div>
+    <div class="seg" id="note-format" title="Format" data-i18n-title="note.format">
+      <button data-nf="text" data-i18n="note.plain">Plain text</button>
+      <button data-nf="markdown" class="active" data-i18n="note.markdown">Markdown</button>
+    </div>
+    <button class="ico" id="note-preview-toggle" title="Preview" data-i18n-title="note.preview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg></button>
+    <span id="note-saved" class="note-saved" aria-live="polite"></span>
+    <button class="ico" id="note-delete" title="Delete note" data-i18n-title="note.delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V6"/></svg></button>
+  </div>
+  <div class="nstage" id="note-stage">
+    <textarea class="note-body" id="note-body" spellcheck="true"></textarea>
+    <div class="note-render markdown-body" id="note-render"></div>
+  </div>
 </section>
 
 <!-- ============ DROP ZONE ============ -->

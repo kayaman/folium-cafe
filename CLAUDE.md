@@ -63,7 +63,8 @@ Hand-rolled service worker, no Workbox. Cache inventory — the SW's activate ha
 |---|---|---|
 | `folium-shell-<BUILD_ID>` | SW precache | app shell incl. vendor PDF.js |
 | `folium-cdn-v1` | SW runtime | unpkg standard_fonts/cmaps |
-| `folium-pdf` | app.ts | PDF bytes under synthetic `/pdf-store/{id}` keys (LRU-10, presigned URLs can't be cache keys — they expire) |
+| `folium-vendor-v1` | SW runtime | lazily-loaded `/vendor/*` libs not in SHELL (e.g. fflate for CBZ) |
+| `folium-pdf` | app.ts | PDF/CBZ/txt/md bytes under synthetic `/pdf-store/{id}` keys (LRU-10, presigned URLs can't be cache keys — they expire) |
 | `folium-data` | app.ts | `GET /api/books` snapshot for offline boot |
 | `folium-shared` | SW | Android share-sheet PDFs awaiting post-login ingest |
 
