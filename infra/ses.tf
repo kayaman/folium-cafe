@@ -12,10 +12,8 @@ resource "aws_route53_record" "ses_verification" {
   records = [aws_ses_domain_identity.folium.verification_token]
 }
 
-resource "aws_ses_domain_identity_verification" "folium" {
-  domain     = aws_ses_domain_identity.folium.id
-  depends_on = [aws_route53_record.ses_verification]
-}
+# NOTE: Avoid aws_ses_domain_identity_verification because it blocks terraform apply until
+# DNS propagation completes and SES verifies the identity. Verification is checked manually.
 
 resource "aws_ses_domain_dkim" "folium" {
   domain = aws_ses_domain_identity.folium.domain
