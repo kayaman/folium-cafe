@@ -16,6 +16,10 @@ npm run build          # BUILD_ID env versions the SW cache (CI passes the git S
 npm run watch          # rebuild app.ts on change (alias: npm run dev)
 npm run icons          # re-render committed icon PNGs from project/icons/crest*.svg (sharp)
 
+# i18n guards — run after touching UI strings (CI runs both)
+npx tsc --noEmit               # EN/PT/ES dict key parity (typed off EN)
+node scripts/i18n-check.mjs    # every t()/tn()/data-i18n* key exists; no markup in values
+
 # Backend tests (from backend/) — node:test, no framework
 cd backend && npm test
 node --test test/auth.test.mjs                      # single file
@@ -49,7 +53,7 @@ Password and HMAC key are SSM SecureStrings (`/folium-cafe/app_password`, `/foli
 
 ### Frontend (`project/app.ts`, single file)
 
-Organized by `// ---------- section ----------` comments. The data-layer functions keep their pre-migration IndexedDB names (`dbAll`/`dbPut`/`dbGet`/`dbDel`) but are fetch calls to `/api/*` — don't be misled by the names. Upload flow: parse PDF locally with PDF.js (self-hosted in `project/vendor/`, pinned 3.11.174; unpkg only for lazy fonts/cmaps) → `POST /api/books` returns a presigned PUT → browser uploads bytes to S3. `api()` throws typed errors: `ApiAuthError` (401 → login screen) vs `ApiNetworkError` (→ offline mode). View preferences stay in `localStorage` (`folium.*` keys; a one-time `folio.*` migration runs at startup — removable after a few releases).
+Organized by `// ---------- section ----------` comments. UI strings are localized (en/pt-BR/es) via the `// ---------- i18n ----------` section: `t()`/`tn()` for TS strings, `data-i18n*` attributes for static index.html markup, locale resolved from `localStorage['folium.lang']` override → `navigator.languages` → en, overridable in the Settings modal; the FOLIUM CAFÉ wordmark, `<title>`, meta description, and manifest are deliberately never translated. The data-layer functions keep their pre-migration IndexedDB names (`dbAll`/`dbPut`/`dbGet`/`dbDel`) but are fetch calls to `/api/*` — don't be misled by the names. Upload flow: parse PDF locally with PDF.js (self-hosted in `project/vendor/`, pinned 3.11.174; unpkg only for lazy fonts/cmaps) → `POST /api/books` returns a presigned PUT → browser uploads bytes to S3. `api()` throws typed errors: `ApiAuthError` (401 → login screen) vs `ApiNetworkError` (→ offline mode). View preferences stay in `localStorage` (`folium.*` keys; a one-time `folio.*` migration runs at startup — removable after a few releases).
 
 ### PWA / offline (`project/sw.ts` + app-layer caches)
 

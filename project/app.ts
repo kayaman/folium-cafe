@@ -38,12 +38,302 @@ const $ = <T extends HTMLElement = HTMLElement>(sel: string): T =>
 const el = <T extends HTMLElement = HTMLElement>(id: string): T =>
   document.getElementById(id) as T;
 
+// ---------- i18n ----------
+// Locale-aware UI strings. The EN dict is the source of truth for the key set;
+// PT/ES are typed off it so `tsc --noEmit` fails on any missing or extra key.
+// Never translated: the FOLIUM CAFÉ wordmark/crest, <title>,
+// manifest.webmanifest (incl. the "Continue reading" shortcut), meta description.
+type Locale = 'en' | 'pt-BR' | 'es';
+type LangPref = 'system' | Locale;
+
+const EN = {
+  'login.tagline': 'so you remember the page you were on',
+  'login.reader': 'Reader',
+  'login.namePh': 'Your name',
+  'login.passphrase': 'Passphrase',
+  'login.submit': 'Enter the café',
+  'login.note': 'Your library is kept on a private shelf — sign in from any device to pick up where you left off.',
+  'mast.libraryTitle': 'Library',
+  'mast.viewAria': 'Library view',
+  'mast.shelf': 'Shelf',
+  'mast.shelfTitle': 'Bookshelf',
+  'mast.covers': 'Covers',
+  'mast.coversTitle': 'Cover grid',
+  'mast.list': 'List',
+  'mast.listTitle': 'Reading list',
+  'mast.add': 'Add books',
+  'mast.addTitle': 'Add PDFs',
+  'menu.atCafe': 'at the café',
+  'menu.settings': 'Settings',
+  'menu.install': 'Install Folium Café',
+  'menu.signOut': 'Sign out',
+  'common.reader': 'Reader',
+  'lib.title': 'Your Library',
+  'lib.count.one': '{n} volume',
+  'lib.count.other': '{n} volumes',
+  'lib.continue': 'Continue reading',
+  'lib.resume': 'Resume',
+  'lib.read': 'Read',
+  'lib.new': 'New',
+  'lib.pageOf': 'Page {page} of {total} · {pct}%',
+  'lib.unknownAuthor': 'Unknown author',
+  'lib.unknown': 'Unknown',
+  'lib.offlineDot': 'Available offline',
+  'lib.remove': 'Remove',
+  'lib.emptyTitle': 'Your shelves are empty',
+  'lib.emptyBody': 'Add a PDF to begin your collection. Your shelf follows you to any device.',
+  'lib.emptyAdd': 'Add your first book',
+  'lib.confirmRemove': 'Remove “{title}” from your library?\nThis removes the book from your shelf.',
+  'rdr.back': 'Back to library',
+  'rdr.prevPage': 'Previous page',
+  'rdr.nextPage': 'Next page',
+  'rdr.prev': 'Previous',
+  'rdr.next': 'Next',
+  'rdr.widthTitle': 'Page width',
+  'rdr.comfort': 'Comfort',
+  'rdr.full': 'Full',
+  'rdr.zoomOut': 'Zoom out',
+  'rdr.zoomIn': 'Zoom in',
+  'rdr.focus': 'Distraction-free (F)',
+  'rdr.zenHint': 'Move the cursor up to show controls · Esc to exit',
+  'drop.kicker': 'Add to your library',
+  'drop.body': 'Drop PDF files to shelve them',
+  'settings.title': 'Settings',
+  'settings.language': 'Language',
+  'settings.langSystem': 'System default',
+  'settings.done': 'Done',
+  'toast.offlineAdd': 'You’re offline — try adding books when you’re back online',
+  'toast.cantRead': 'Could not read “{name}”',
+  'toast.pdfOnly': 'Please choose PDF files',
+  'toast.shelving.one': 'Shelving your book…',
+  'toast.shelving.other': 'Shelving {n} books…',
+  'toast.shelvingShared.one': 'Shelving your shared book…',
+  'toast.shelvingShared.other': 'Shelving {n} shared books…',
+  'toast.added': 'Added to your library',
+  'toast.offlineRetry': 'You’re offline — try again when you’re back online',
+  'toast.removed': 'Removed from library',
+  'toast.cantOpen': 'Could not open that book',
+  'toast.cantLoad': 'Could not load this PDF',
+  'toast.notDownloaded': 'This book isn’t downloaded on this device',
+  'toast.loadFailed': 'Failed to load this PDF',
+  'toast.wrongPass': 'Wrong password',
+  'toast.noServer': 'Could not reach the server',
+  'time.notOpened': 'Not yet opened',
+  'time.justNow': 'Just now',
+  'pwa.updated': 'Folium Café has been updated',
+  'pwa.installed': 'Folium Café is on your home screen',
+} as const;
+type MsgKey = keyof typeof EN;
+
+const PT: Record<MsgKey, string> = {
+  'login.tagline': 'para você lembrar da página em que parou',
+  'login.reader': 'Leitor',
+  'login.namePh': 'Seu nome',
+  'login.passphrase': 'Senha',
+  'login.submit': 'Entrar no café',
+  'login.note': 'Sua biblioteca fica numa estante particular — entre de qualquer dispositivo para continuar de onde parou.',
+  'mast.libraryTitle': 'Biblioteca',
+  'mast.viewAria': 'Visualização da biblioteca',
+  'mast.shelf': 'Estante',
+  'mast.shelfTitle': 'Estante de livros',
+  'mast.covers': 'Capas',
+  'mast.coversTitle': 'Grade de capas',
+  'mast.list': 'Lista',
+  'mast.listTitle': 'Lista de leitura',
+  'mast.add': 'Adicionar livros',
+  'mast.addTitle': 'Adicionar PDFs',
+  'menu.atCafe': 'no café',
+  'menu.settings': 'Configurações',
+  'menu.install': 'Instalar o Folium Café',
+  'menu.signOut': 'Sair',
+  'common.reader': 'Leitor',
+  'lib.title': 'Sua Biblioteca',
+  'lib.count.one': '{n} volume',
+  'lib.count.other': '{n} volumes',
+  'lib.continue': 'Continuar lendo',
+  'lib.resume': 'Retomar',
+  'lib.read': 'Ler',
+  'lib.new': 'Novo',
+  'lib.pageOf': 'Página {page} de {total} · {pct}%',
+  'lib.unknownAuthor': 'Autor desconhecido',
+  'lib.unknown': 'Desconhecido',
+  'lib.offlineDot': 'Disponível offline',
+  'lib.remove': 'Remover',
+  'lib.emptyTitle': 'Suas estantes estão vazias',
+  'lib.emptyBody': 'Adicione um PDF para começar sua coleção. Sua estante acompanha você em qualquer dispositivo.',
+  'lib.emptyAdd': 'Adicione seu primeiro livro',
+  'lib.confirmRemove': 'Remover “{title}” da sua biblioteca?\nIsso remove o livro da sua estante.',
+  'rdr.back': 'Voltar à biblioteca',
+  'rdr.prevPage': 'Página anterior',
+  'rdr.nextPage': 'Próxima página',
+  'rdr.prev': 'Anterior',
+  'rdr.next': 'Próxima',
+  'rdr.widthTitle': 'Largura da página',
+  'rdr.comfort': 'Conforto',
+  'rdr.full': 'Total',
+  'rdr.zoomOut': 'Diminuir zoom',
+  'rdr.zoomIn': 'Aumentar zoom',
+  'rdr.focus': 'Sem distrações (F)',
+  'rdr.zenHint': 'Mova o cursor para cima para mostrar os controles · Esc para sair',
+  'drop.kicker': 'Adicionar à sua biblioteca',
+  'drop.body': 'Solte arquivos PDF para colocá-los na estante',
+  'settings.title': 'Configurações',
+  'settings.language': 'Idioma',
+  'settings.langSystem': 'Padrão do sistema',
+  'settings.done': 'Concluído',
+  'toast.offlineAdd': 'Você está offline — tente adicionar livros quando voltar a ficar online',
+  'toast.cantRead': 'Não foi possível ler “{name}”',
+  'toast.pdfOnly': 'Escolha arquivos PDF',
+  'toast.shelving.one': 'Colocando seu livro na estante…',
+  'toast.shelving.other': 'Colocando {n} livros na estante…',
+  'toast.shelvingShared.one': 'Colocando o livro compartilhado na estante…',
+  'toast.shelvingShared.other': 'Colocando {n} livros compartilhados na estante…',
+  'toast.added': 'Adicionado à sua biblioteca',
+  'toast.offlineRetry': 'Você está offline — tente novamente quando voltar a ficar online',
+  'toast.removed': 'Removido da biblioteca',
+  'toast.cantOpen': 'Não foi possível abrir esse livro',
+  'toast.cantLoad': 'Não foi possível carregar este PDF',
+  'toast.notDownloaded': 'Este livro não está baixado neste dispositivo',
+  'toast.loadFailed': 'Falha ao carregar este PDF',
+  'toast.wrongPass': 'Senha incorreta',
+  'toast.noServer': 'Não foi possível conectar ao servidor',
+  'time.notOpened': 'Ainda não aberto',
+  'time.justNow': 'Agora mesmo',
+  'pwa.updated': 'O Folium Café foi atualizado',
+  'pwa.installed': 'O Folium Café está na sua tela inicial',
+};
+
+const ES: Record<MsgKey, string> = {
+  'login.tagline': 'para que recuerdes la página en la que estabas',
+  'login.reader': 'Lector',
+  'login.namePh': 'Tu nombre',
+  'login.passphrase': 'Contraseña',
+  'login.submit': 'Entrar al café',
+  'login.note': 'Tu biblioteca se guarda en un estante privado: inicia sesión desde cualquier dispositivo para continuar donde lo dejaste.',
+  'mast.libraryTitle': 'Biblioteca',
+  'mast.viewAria': 'Vista de la biblioteca',
+  'mast.shelf': 'Estante',
+  'mast.shelfTitle': 'Estantería',
+  'mast.covers': 'Portadas',
+  'mast.coversTitle': 'Cuadrícula de portadas',
+  'mast.list': 'Lista',
+  'mast.listTitle': 'Lista de lectura',
+  'mast.add': 'Añadir libros',
+  'mast.addTitle': 'Añadir PDFs',
+  'menu.atCafe': 'en el café',
+  'menu.settings': 'Ajustes',
+  'menu.install': 'Instalar Folium Café',
+  'menu.signOut': 'Cerrar sesión',
+  'common.reader': 'Lector',
+  'lib.title': 'Tu Biblioteca',
+  'lib.count.one': '{n} volumen',
+  'lib.count.other': '{n} volúmenes',
+  'lib.continue': 'Seguir leyendo',
+  'lib.resume': 'Reanudar',
+  'lib.read': 'Leer',
+  'lib.new': 'Nuevo',
+  'lib.pageOf': 'Página {page} de {total} · {pct}%',
+  'lib.unknownAuthor': 'Autor desconocido',
+  'lib.unknown': 'Desconocido',
+  'lib.offlineDot': 'Disponible sin conexión',
+  'lib.remove': 'Quitar',
+  'lib.emptyTitle': 'Tus estantes están vacíos',
+  'lib.emptyBody': 'Añade un PDF para empezar tu colección. Tu estante te sigue en cualquier dispositivo.',
+  'lib.emptyAdd': 'Añade tu primer libro',
+  'lib.confirmRemove': '¿Quitar “{title}” de tu biblioteca?\nEsto elimina el libro de tu estante.',
+  'rdr.back': 'Volver a la biblioteca',
+  'rdr.prevPage': 'Página anterior',
+  'rdr.nextPage': 'Página siguiente',
+  'rdr.prev': 'Anterior',
+  'rdr.next': 'Siguiente',
+  'rdr.widthTitle': 'Ancho de página',
+  'rdr.comfort': 'Cómodo',
+  'rdr.full': 'Completo',
+  'rdr.zoomOut': 'Alejar',
+  'rdr.zoomIn': 'Acercar',
+  'rdr.focus': 'Sin distracciones (F)',
+  'rdr.zenHint': 'Mueve el cursor hacia arriba para mostrar los controles · Esc para salir',
+  'drop.kicker': 'Añadir a tu biblioteca',
+  'drop.body': 'Suelta archivos PDF para colocarlos en el estante',
+  'settings.title': 'Ajustes',
+  'settings.language': 'Idioma',
+  'settings.langSystem': 'Predeterminado del sistema',
+  'settings.done': 'Listo',
+  'toast.offlineAdd': 'Estás sin conexión: intenta añadir libros cuando vuelvas a estar en línea',
+  'toast.cantRead': 'No se pudo leer “{name}”',
+  'toast.pdfOnly': 'Elige archivos PDF',
+  'toast.shelving.one': 'Colocando tu libro en el estante…',
+  'toast.shelving.other': 'Colocando {n} libros en el estante…',
+  'toast.shelvingShared.one': 'Colocando el libro compartido en el estante…',
+  'toast.shelvingShared.other': 'Colocando {n} libros compartidos en el estante…',
+  'toast.added': 'Añadido a tu biblioteca',
+  'toast.offlineRetry': 'Estás sin conexión: inténtalo de nuevo cuando vuelvas a estar en línea',
+  'toast.removed': 'Eliminado de la biblioteca',
+  'toast.cantOpen': 'No se pudo abrir ese libro',
+  'toast.cantLoad': 'No se pudo cargar este PDF',
+  'toast.notDownloaded': 'Este libro no está descargado en este dispositivo',
+  'toast.loadFailed': 'Error al cargar este PDF',
+  'toast.wrongPass': 'Contraseña incorrecta',
+  'toast.noServer': 'No se pudo conectar con el servidor',
+  'time.notOpened': 'Aún sin abrir',
+  'time.justNow': 'Ahora mismo',
+  'pwa.updated': 'Folium Café se ha actualizado',
+  'pwa.installed': 'Folium Café está en tu pantalla de inicio',
+};
+
+const DICTS: Record<Locale, Record<MsgKey, string>> = { en: EN, 'pt-BR': PT, es: ES };
+
+let locale: Locale = 'en';                 // set for real by setLanguage() in init()
+let pluralRules = new Intl.PluralRules('en');
+
+function t(key: MsgKey, params?: Record<string, string | number>): string {
+  let s: string = DICTS[locale][key] ?? EN[key];
+  if (params) for (const [k, v] of Object.entries(params)) s = s.split('{' + k + '}').join(String(v));
+  return s;
+}
+
+// en/pt/es all reduce to one/other in CLDR (pt classes 0 as "one" — which a
+// hand-rolled n === 1 check would get wrong).
+function tn(base: string, n: number): string {
+  const cat = pluralRules.select(n) === 'one' ? 'one' : 'other';
+  return t((base + '.' + cat) as MsgKey, { n });
+}
+
+function resolveLocale(): Locale {
+  const pref = (localStorage.getItem(LS.lang) || 'system') as LangPref;
+  if (pref !== 'system') return pref;
+  const tags = navigator.languages?.length ? navigator.languages : [navigator.language || 'en'];
+  for (const tag of tags) {
+    const l = tag.toLowerCase();
+    if (l.startsWith('pt')) return 'pt-BR';   // closest we offer for pt-PT too
+    if (l.startsWith('es')) return 'es';
+    if (l.startsWith('en')) return 'en';
+  }
+  return 'en';
+}
+
+function applyI18n(): void {
+  document.documentElement.lang = locale;
+  document.querySelectorAll<HTMLElement>('[data-i18n]').forEach(n => { n.textContent = t(n.dataset.i18n as MsgKey); });
+  document.querySelectorAll<HTMLElement>('[data-i18n-title]').forEach(n => { n.title = t(n.dataset.i18nTitle as MsgKey); });
+  document.querySelectorAll<HTMLInputElement>('[data-i18n-placeholder]').forEach(n => { n.placeholder = t(n.dataset.i18nPlaceholder as MsgKey); });
+  document.querySelectorAll<HTMLElement>('[data-i18n-aria]').forEach(n => { n.setAttribute('aria-label', t(n.dataset.i18nAria as MsgKey)); });
+}
+
+function setLanguage(pref: LangPref): void {
+  localStorage.setItem(LS.lang, pref);
+  locale = resolveLocale();
+  pluralRules = new Intl.PluralRules(locale);
+  applyI18n();
+  if (!el('app').classList.contains('hidden')) renderLibrary();
+}
+
 function toast(msg: string): void {
-  const t = el('toast');
-  t.textContent = msg;
-  t.classList.add('show');
+  const node = el('toast');
+  node.textContent = msg;
+  node.classList.add('show');
   window.clearTimeout((toast as any)._t);
-  (toast as any)._t = window.setTimeout(() => t.classList.remove('show'), 2200);
+  (toast as any)._t = window.setTimeout(() => node.classList.remove('show'), 2200);
 }
 
 // ---------- API client ----------
@@ -250,6 +540,7 @@ const LS = {
   width: 'folium.readerWidth',
   pdfLru: 'folium.pdfLru',
   progressQueue: 'folium.progressQueue',
+  lang: 'folium.lang',
 };
 migrateLocalStorage();   // must run before viewMode/reader.width read their keys
 let books: Book[] = [];
@@ -270,13 +561,14 @@ function pct(b: Book): number {
   return Math.round(((b.currentPage - 1) / (b.numPages - 1)) * 100);
 }
 function relTime(ts: number): string {
-  if (!ts) return 'Not yet opened';
+  if (!ts) return t('time.notOpened');
   const d = Date.now() - ts, m = 60000, h = m * 60, day = h * 24;
-  if (d < m) return 'Just now';
-  if (d < h) return Math.floor(d / m) + ' min ago';
-  if (d < day) return Math.floor(d / h) + 'h ago';
-  if (d < day * 7) return Math.floor(d / day) + 'd ago';
-  return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  if (d < m) return t('time.justNow');
+  const rtf = new Intl.RelativeTimeFormat(locale, { style: 'narrow' });
+  if (d < h) return rtf.format(-Math.floor(d / m), 'minute');
+  if (d < day) return rtf.format(-Math.floor(d / h), 'hour');
+  if (d < day * 7) return rtf.format(-Math.floor(d / day), 'day');
+  return new Date(ts).toLocaleDateString(locale, { month: 'short', day: 'numeric' });
 }
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as any)[c]);
@@ -332,22 +624,22 @@ async function ingest(file: File | { name: string; buf: ArrayBuffer }): Promise<
     return book;
   } catch (e) {
     console.error('ingest failed', e);
-    if (e instanceof ApiNetworkError) toast('You’re offline — try adding books when you’re back online');
-    else toast('Could not read “' + (file as any).name + '”');
+    if (e instanceof ApiNetworkError) toast(t('toast.offlineAdd'));
+    else toast(t('toast.cantRead', { name: (file as any).name }));
     return null;
   }
 }
 
 async function addFiles(files: FileList | File[]): Promise<void> {
   const arr = Array.from(files).filter(f => /pdf$/i.test(f.name) || f.type === 'application/pdf');
-  if (!arr.length) { toast('Please choose PDF files'); return; }
-  toast(arr.length === 1 ? 'Shelving your book…' : 'Shelving ' + arr.length + ' books…');
+  if (!arr.length) { toast(t('toast.pdfOnly')); return; }
+  toast(tn('toast.shelving', arr.length));
   for (const f of arr) {
     const b = await ingest(f);
     if (b) books.unshift(b);
   }
   renderLibrary();
-  toast('Added to your library');
+  toast(t('toast.added'));
 }
 
 
@@ -360,21 +652,21 @@ const ICON = {
 };
 
 function coverMarkup(b: Book): string {
-  const offdot = offlineIds.has(b.id) ? '<span class="offdot" title="Available offline"></span>' : '';
+  const offdot = offlineIds.has(b.id) ? `<span class="offdot" title="${t('lib.offlineDot')}"></span>` : '';
   if (b.cover) {
     return `<div class="cover" style="background-image:url('${b.cover}')"><span class="spine"></span>${offdot}` +
       (b.lastReadAt ? `<span class="pct">${pct(b)}%</span>` : '') +
-      `<button class="del" data-del="${b.id}" title="Remove">${ICON.trash}</button></div>`;
+      `<button class="del" data-del="${b.id}" title="${t('lib.remove')}">${ICON.trash}</button></div>`;
   }
   const initials = (b.author || '').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
   return `<div class="cover"><span class="spine"></span>${offdot}
       <div class="gen-cover">
         <div class="gt">${escapeHtml(b.title)}</div>
         <div class="grule"></div>
-        <div class="ga">${escapeHtml(b.author || initials || 'Unknown')}</div>
+        <div class="ga">${escapeHtml(b.author || initials) || t('lib.unknown')}</div>
       </div>` +
     (b.lastReadAt ? `<span class="pct">${pct(b)}%</span>` : '') +
-    `<button class="del" data-del="${b.id}" title="Remove">${ICON.trash}</button></div>`;
+    `<button class="del" data-del="${b.id}" title="${t('lib.remove')}">${ICON.trash}</button></div>`;
 }
 
 function bookCard(b: Book): string {
@@ -404,11 +696,11 @@ function renderList(list: Book[]): string {
       : `<div class="rcv"><div class="gen-cover"><div class="gt">${escapeHtml(b.title)}</div></div></div>`;
     return `<div class="row" data-open="${b.id}">
       ${cv}
-      <div class="rmeta"><div class="rt">${escapeHtml(b.title)}</div><div class="ra">${escapeHtml(b.author || 'Unknown author')}</div></div>
-      <div class="rprog"><div class="progress"><i style="width:${pct(b)}%"></i></div><span class="progress-num">${b.lastReadAt ? pct(b) + '%' : 'New'}</span></div>
+      <div class="rmeta"><div class="rt">${escapeHtml(b.title)}</div><div class="ra">${escapeHtml(b.author) || t('lib.unknownAuthor')}</div></div>
+      <div class="rprog"><div class="progress"><i style="width:${pct(b)}%"></i></div><span class="progress-num">${b.lastReadAt ? pct(b) + '%' : t('lib.new')}</span></div>
       <div class="rwhen">${relTime(b.lastReadAt)}</div>
-      <button class="rresume" data-open="${b.id}">${ICON.play}${b.lastReadAt ? 'Resume' : 'Read'}</button>
-      <button class="del rmenu" data-del="${b.id}" title="Remove">${ICON.trash}</button>
+      <button class="rresume" data-open="${b.id}">${ICON.play}${b.lastReadAt ? t('lib.resume') : t('lib.read')}</button>
+      <button class="del rmenu" data-del="${b.id}" title="${t('lib.remove')}">${ICON.trash}</button>
     </div>`;
   }).join('');
   return `<div class="list">${rows}</div>`;
@@ -425,9 +717,9 @@ function renderContinue(): void {
   cv.style.backgroundImage = b.cover ? `url('${b.cover}')` : 'none';
   cv.innerHTML = b.cover ? '' : `<div class="gen-cover" style="position:absolute;inset:0;border-radius:2px"><div class="gt" style="font-size:13px">${escapeHtml(b.title)}</div><div class="grule"></div><div class="ga">${escapeHtml(b.author)}</div></div>`;
   el('cont-title').textContent = b.title;
-  el('cont-author').textContent = b.author || 'Unknown author';
+  el('cont-author').textContent = b.author || t('lib.unknownAuthor');
   el('cont-bar').style.width = pct(b) + '%';
-  el('cont-num').textContent = 'Page ' + b.currentPage + ' of ' + b.numPages + ' · ' + pct(b) + '%';
+  el('cont-num').textContent = t('lib.pageOf', { page: b.currentPage, total: b.numPages, pct: pct(b) });
 }
 
 function renderLibrary(): void {
@@ -435,9 +727,7 @@ function renderLibrary(): void {
   document.querySelectorAll('#viewswitch button').forEach(btn => {
     btn.classList.toggle('active', (btn as HTMLElement).dataset.view === viewMode);
   });
-  el('lib-count').textContent = books.length
-    ? books.length + (books.length === 1 ? ' volume' : ' volumes')
-    : '';
+  el('lib-count').textContent = books.length ? tn('lib.count', books.length) : '';
   renderContinue();
 
   const body = el('lib-body');
@@ -445,9 +735,9 @@ function renderLibrary(): void {
     el('continue').classList.remove('show');
     body.innerHTML = `<div class="empty">
       <div class="ic">❦</div>
-      <h3>Your shelves are empty</h3>
-      <p>Add a PDF to begin your collection. Your shelf follows you to any device.</p>
-      <button class="mast-btn brass" id="empty-add" style="margin:0 auto">Add your first book</button>
+      <h3>${t('lib.emptyTitle')}</h3>
+      <p>${t('lib.emptyBody')}</p>
+      <button class="mast-btn brass" id="empty-add" style="margin:0 auto">${t('lib.emptyAdd')}</button>
     </div>`;
     const ea = document.getElementById('empty-add');
     if (ea) ea.addEventListener('click', () => el('file-input').click());
@@ -479,16 +769,16 @@ function wireLibrary(): void {
 async function confirmDelete(id: string): Promise<void> {
   const b = books.find(x => x.id === id);
   if (!b) return;
-  if (!window.confirm('Remove “' + b.title + '” from your library?\nThis removes the book from your shelf.')) return;
+  if (!window.confirm(t('lib.confirmRemove', { title: b.title }))) return;
   try {
     await dbDel(id);
   } catch (e) {
-    if (e instanceof ApiNetworkError) { toast('You’re offline — try again when you’re back online'); return; }
+    if (e instanceof ApiNetworkError) { toast(t('toast.offlineRetry')); return; }
     throw e;
   }
   books = books.filter(x => x.id !== id);
   renderLibrary();
-  toast('Removed from library');
+  toast(t('toast.removed'));
 }
 
 // view switch
@@ -520,7 +810,7 @@ const reader = {
 
 async function openBook(id: string): Promise<void> {
   const meta = books.find(x => x.id === id);
-  if (!meta) { toast('Could not open that book'); return; }
+  if (!meta) { toast(t('toast.cantOpen')); return; }
   const b = meta as Book;
   reader.book = b;
   reader.page = Math.min(Math.max(1, b.currentPage || 1), b.numPages);
@@ -535,13 +825,13 @@ async function openBook(id: string): Promise<void> {
   el('r-loading').classList.remove('hidden');
   try {
     const bytes = await dbGet(id);
-    if (!bytes) { toast('Could not load this PDF'); el('r-loading').classList.add('hidden'); return; }
+    if (!bytes) { toast(t('toast.cantLoad')); el('r-loading').classList.add('hidden'); return; }
     reader.doc = await loadDoc(bytes);
     await renderPage(reader.page, false);
   } catch (e) {
     console.error(e);
-    if (e instanceof ApiNetworkError) toast('This book isn’t downloaded on this device');
-    else toast('Failed to load this PDF');
+    if (e instanceof ApiNetworkError) toast(t('toast.notDownloaded'));
+    else toast(t('toast.loadFailed'));
   }
   el('r-loading').classList.add('hidden');
 }
@@ -757,14 +1047,14 @@ function wireReader(): void {
 function showApp(name: string): void {
   el('login').classList.add('hidden');
   el('app').classList.remove('hidden');
-  const initial = (name.trim()[0] || 'R').toUpperCase();
+  const initial = (name.trim()[0] || t('common.reader')[0]).toUpperCase();
   el('avatar-initial').textContent = initial;
-  el('user-name').textContent = name.trim() || 'Reader';
+  el('user-name').textContent = name.trim() || t('common.reader');
 }
 function wireAuth(): void {
   el<HTMLFormElement>('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const name = (el('login-name') as HTMLInputElement).value.trim() || 'Reader';
+    const name = (el('login-name') as HTMLInputElement).value.trim() || t('common.reader');
     const pass = (el('login-pass') as HTMLInputElement).value;
     if (!pass) return;
     try {
@@ -774,12 +1064,12 @@ function wireAuth(): void {
         credentials: 'same-origin',
         body: JSON.stringify({ password: pass }),
       });
-      if (!res.ok) { toast('Wrong password'); return; }
+      if (!res.ok) { toast(t('toast.wrongPass')); return; }
       localStorage.setItem(LS.user, JSON.stringify({ name }));
       showApp(name);
       await boot();
     } catch {
-      toast('Could not reach the server');
+      toast(t('toast.noServer'));
     }
   });
 
@@ -875,7 +1165,7 @@ async function drainSharedCache(): Promise<void> {
     const cache = await caches.open(SHARED_CACHE);
     const keys = await cache.keys();
     if (!keys.length) return;
-    toast(keys.length === 1 ? 'Shelving your shared book…' : 'Shelving ' + keys.length + ' shared books…');
+    toast(tn('toast.shelvingShared', keys.length));
     for (const req of keys) {
       const res = await cache.match(req);
       if (!res) continue;
@@ -886,7 +1176,7 @@ async function drainSharedCache(): Promise<void> {
       await cache.delete(req);
     }
     renderLibrary();
-    toast('Added to your library');
+    toast(t('toast.added'));
   } catch (e) { console.warn('shared intake failed', e); }
 }
 
@@ -901,7 +1191,7 @@ function wirePwa(): void {
     // A controller swap after the first one means a new version took over.
     let hadController = !!navigator.serviceWorker.controller;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (hadController) toast('Folium Café has been updated');
+      if (hadController) toast(t('pwa.updated'));
       hadController = true;
     });
   }
@@ -930,7 +1220,7 @@ function wirePwa(): void {
   });
   window.addEventListener('appinstalled', () => {
     el('btn-install').classList.add('hidden');
-    toast('Folium Café is on your home screen');
+    toast(t('pwa.installed'));
   });
 }
 
@@ -948,8 +1238,28 @@ function migrateLocalStorage(): void {
   }
 }
 
+function wireSettings(): void {
+  const modal = el('settings');
+  const sel = el<HTMLSelectElement>('lang-select');
+  el('btn-settings').addEventListener('click', () => {
+    sel.value = localStorage.getItem(LS.lang) || 'system';
+    modal.classList.remove('hidden');
+    el('dropdown').classList.add('hidden');
+  });
+  sel.addEventListener('change', () => setLanguage(sel.value as LangPref));  // applies live
+  el('settings-done').addEventListener('click', () => modal.classList.add('hidden'));
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.add('hidden'); });
+  document.addEventListener('keydown', (e) => {
+    if ((e as KeyboardEvent).key === 'Escape' && !modal.classList.contains('hidden')) modal.classList.add('hidden');
+  });
+}
+
 function init(): void {
+  locale = resolveLocale();
+  pluralRules = new Intl.PluralRules(locale);
+  applyI18n();
   wireAuth();
+  wireSettings();
   _onUnauthorized = () => {
     localStorage.removeItem(LS.user);
     el('app').classList.add('hidden');
@@ -966,7 +1276,7 @@ function init(): void {
   if (saved) {
     try {
       const u = JSON.parse(saved);
-      showApp(u.name || 'Reader');
+      showApp(u.name || t('common.reader'));
       boot();
     } catch { /* show login */ }
   }
