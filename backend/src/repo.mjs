@@ -1,62 +1,111 @@
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient, QueryCommand, PutCommand, GetCommand,
-  UpdateCommand, DeleteCommand,
+  QueryCommand, PutCommand, GetCommand, UpdateCommand, DeleteCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 
-const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
-const s3 = new S3Client({});
+export const MAX_BOOKS = 100;
+export const MAX_PDF_BYTES = 100 * 1024 * 1024; // 100 MB
 
-const TABLE = process.env.TABLE_NAME;
-const BUCKET = process.env.PDF_BUCKET;
-const PK = 'lib'; // single-user partition
+const META_ID = '_meta'; // per-user item: tokensValidAfter (session revocation)
 
-const pdfKey = (id) => `pdfs/${id}.pdf`;
+export function makeRepo({
+  ddb, s3,
+  table = process.env.TABLE_NAME,
+  bucket = process.env.PDF_BUCKET,
+  presignGet = getSignedUrl,
+  presignPost = createPresignedPost,
+} = {}) {
+  const userPk = (sub) => `USER#${sub}`;
+  const pdfKey = (sub, id) => `users/${sub}/pdfs/${id}.pdf`;
 
-export async function listBooks() {
-  const out = await ddb.send(new QueryCommand({
-    TableName: TABLE,
-    KeyConditionExpression: 'pk = :pk',
-    ExpressionAttributeValues: { ':pk': PK },
-  }));
-  // Strip the partition key from the response.
-  return (out.Items ?? []).map(({ pk, ...rest }) => rest);
-}
+  return {
+    async listBooks(sub) {
+      const out = await ddb.send(new QueryCommand({
+        TableName: table,
+        KeyConditionExpression: 'pk = :pk',
+        ExpressionAttributeValues: { ':pk': userPk(sub) },
+      }));
+      return (out.Items ?? [])
+        .filter((i) => i.id !== META_ID)
+        .map(({ pk, ...rest }) => rest);
+    },
 
-export async function putBook(book) {
-  await ddb.send(new PutCommand({ TableName: TABLE, Item: { pk: PK, ...book } }));
-}
+    async putBook(sub, book) {
+      const existing = await ddb.send(new GetCommand({
+        TableName: table, Key: { pk: userPk(sub), id: book.id },
+      }));
+      if (!existing.Item) {
+        const count = await ddb.send(new QueryCommand({
+          TableName: table,
+          KeyConditionExpression: 'pk = :pk',
+          FilterExpression: 'id <> :meta',
+          Select: 'COUNT',
+          ExpressionAttributeValues: { ':pk': userPk(sub), ':meta': META_ID },
+        }));
+        if ((count.Count ?? 0) >= MAX_BOOKS) {
+          return { ok: false, reason: `shelf is full (${MAX_BOOKS} books max)` };
+        }
+      }
+      await ddb.send(new PutCommand({ TableName: table, Item: { pk: userPk(sub), ...book } }));
+      return { ok: true };
+    },
 
-export async function getBook(id) {
-  const out = await ddb.send(new GetCommand({ TableName: TABLE, Key: { pk: PK, id } }));
-  if (!out.Item) return null;
-  const { pk, ...rest } = out.Item;
-  return rest;
-}
+    async getBook(sub, id) {
+      const out = await ddb.send(new GetCommand({
+        TableName: table, Key: { pk: userPk(sub), id },
+      }));
+      if (!out.Item) return null;
+      const { pk, ...rest } = out.Item;
+      return rest;
+    },
 
-export async function updateProgress(id, currentPage, lastReadAt) {
-  await ddb.send(new UpdateCommand({
-    TableName: TABLE,
-    Key: { pk: PK, id },
-    UpdateExpression: 'SET currentPage = :p, lastReadAt = :t',
-    ConditionExpression: 'attribute_exists(id)',
-    ExpressionAttributeValues: { ':p': currentPage, ':t': lastReadAt },
-  }));
-}
+    async updateProgress(sub, id, currentPage, lastReadAt) {
+      await ddb.send(new UpdateCommand({
+        TableName: table,
+        Key: { pk: userPk(sub), id },
+        UpdateExpression: 'SET currentPage = :p, lastReadAt = :t',
+        ConditionExpression: 'attribute_exists(id)',
+        ExpressionAttributeValues: { ':p': currentPage, ':t': lastReadAt },
+      }));
+    },
 
-export async function deleteBook(id) {
-  await ddb.send(new DeleteCommand({ TableName: TABLE, Key: { pk: PK, id } }));
-  await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: pdfKey(id) })).catch(() => {});
-}
+    async deleteBook(sub, id) {
+      await ddb.send(new DeleteCommand({ TableName: table, Key: { pk: userPk(sub), id } }));
+      await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: pdfKey(sub, id) })).catch(() => {});
+    },
 
-export function presignPut(id) {
-  return getSignedUrl(s3, new PutObjectCommand({
-    Bucket: BUCKET, Key: pdfKey(id), ContentType: 'application/pdf',
-  }), { expiresIn: 900 });
-}
+    presignDownload(sub, id) {
+      return presignGet(s3, new GetObjectCommand({ Bucket: bucket, Key: pdfKey(sub, id) }), { expiresIn: 900 });
+    },
 
-export function presignGet(id) {
-  return getSignedUrl(s3, new GetObjectCommand({ Bucket: BUCKET, Key: pdfKey(id) }), { expiresIn: 900 });
+    // Presigned POST (not PUT): only POST policies can cap the upload size.
+    presignUpload(sub, id) {
+      return presignPost(s3, {
+        Bucket: bucket,
+        Key: pdfKey(sub, id),
+        Conditions: [
+          ['content-length-range', 1, MAX_PDF_BYTES],
+          { 'Content-Type': 'application/pdf' },
+        ],
+        Fields: { 'Content-Type': 'application/pdf' },
+        Expires: 900,
+      });
+    },
+
+    async getMeta(sub) {
+      const out = await ddb.send(new GetCommand({
+        TableName: table, Key: { pk: userPk(sub), id: META_ID },
+      }));
+      return out.Item ?? null;
+    },
+
+    async bumpTokensValidAfter(sub, now = Date.now()) {
+      await ddb.send(new PutCommand({
+        TableName: table,
+        Item: { pk: userPk(sub), id: META_ID, tokensValidAfter: now },
+      }));
+    },
+  };
 }
