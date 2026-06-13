@@ -227,7 +227,7 @@ const EN = {
   'settings.done': 'Done',
   'toast.offlineAdd': 'You’re offline — try adding books when you’re back online',
   'toast.cantRead': 'Could not read “{name}”',
-  'toast.unsupported': 'Unsupported file type — try PDF, CBZ, TXT or Markdown',
+  'toast.unsupported': 'Unsupported file type — try PDF, CBZ, TXT, Markdown, audio or video',
   'toast.shelving.one': 'Shelving your book…',
   'toast.shelving.other': 'Shelving {n} books…',
   'toast.shelvingShared.one': 'Shelving your shared book…',
@@ -239,6 +239,7 @@ const EN = {
   'toast.cantLoad': 'Could not load this PDF',
   'toast.notDownloaded': 'This book isn’t downloaded on this device',
   'toast.loadFailed': 'Failed to load this PDF',
+  'toast.mediaError': 'Playback needs a connection — try again online',
   'toast.wrongPass': 'Wrong password',
   'toast.noServer': 'Could not reach the server',
   'time.notOpened': 'Not yet opened',
@@ -336,7 +337,7 @@ const PT: Record<MsgKey, string> = {
   'settings.done': 'Concluído',
   'toast.offlineAdd': 'Você está offline — tente adicionar livros quando voltar a ficar online',
   'toast.cantRead': 'Não foi possível ler “{name}”',
-  'toast.unsupported': 'Tipo de arquivo não suportado — tente PDF, CBZ, TXT ou Markdown',
+  'toast.unsupported': 'Tipo de arquivo não suportado — tente PDF, CBZ, TXT, Markdown, áudio ou vídeo',
   'toast.shelving.one': 'Colocando seu livro na estante…',
   'toast.shelving.other': 'Colocando {n} livros na estante…',
   'toast.shelvingShared.one': 'Colocando o livro compartilhado na estante…',
@@ -348,6 +349,7 @@ const PT: Record<MsgKey, string> = {
   'toast.cantLoad': 'Não foi possível carregar este PDF',
   'toast.notDownloaded': 'Este livro não está baixado neste dispositivo',
   'toast.loadFailed': 'Falha ao carregar este PDF',
+  'toast.mediaError': 'A reprodução precisa de conexão — tente novamente online',
   'toast.wrongPass': 'Senha incorreta',
   'toast.noServer': 'Não foi possível conectar ao servidor',
   'time.notOpened': 'Ainda não aberto',
@@ -444,7 +446,7 @@ const ES: Record<MsgKey, string> = {
   'settings.done': 'Listo',
   'toast.offlineAdd': 'Estás sin conexión: intenta añadir libros cuando vuelvas a estar en línea',
   'toast.cantRead': 'No se pudo leer “{name}”',
-  'toast.unsupported': 'Tipo de archivo no compatible — prueba PDF, CBZ, TXT o Markdown',
+  'toast.unsupported': 'Tipo de archivo no compatible — prueba PDF, CBZ, TXT, Markdown, audio o vídeo',
   'toast.shelving.one': 'Colocando tu libro en el estante…',
   'toast.shelving.other': 'Colocando {n} libros en el estante…',
   'toast.shelvingShared.one': 'Colocando el libro compartido en el estante…',
@@ -456,6 +458,7 @@ const ES: Record<MsgKey, string> = {
   'toast.cantLoad': 'No se pudo cargar este PDF',
   'toast.notDownloaded': 'Este libro no está descargado en este dispositivo',
   'toast.loadFailed': 'Error al cargar este PDF',
+  'toast.mediaError': 'La reproducción necesita conexión — inténtalo de nuevo en línea',
   'toast.wrongPass': 'Contraseña incorrecta',
   'toast.noServer': 'No se pudo conectar con el servidor',
   'time.notOpened': 'Aún sin abrir',
@@ -753,6 +756,18 @@ async function dbGet(id: string): Promise<ArrayBuffer | null> {
 async function dbDel(id: string): Promise<void> {
   await api('/books/' + encodeURIComponent(id), { method: 'DELETE' });
   await evictPdf(id);
+}
+
+// Resolve a fresh presigned GET URL for a book's bytes WITHOUT downloading them.
+// Media (audio/video) streams straight from S3 via this URL (range requests),
+// so it never touches dbGet / the PDF LRU. Presigned URLs expire (~15 min), so
+// the media adapter fetches one at open time (and again on a playback error).
+async function presignedUrlFor(id: string): Promise<string> {
+  const res = await api('/books/' + encodeURIComponent(id) + '/url');
+  if (!res.ok) throw new ApiNetworkError('url ' + res.status);
+  const { url } = await res.json();
+  if (!url) throw new ApiNetworkError('no url');
+  return url as string;
 }
 
 function stripData(b: Book): BookMeta {
@@ -1103,6 +1118,20 @@ function ingestText(name: string, buf: ArrayBuffer, format: 'txt' | 'md'): Book 
   };
 }
 
+// Audio/Video ingest: no local parse, no cover (the generated text cover renders).
+// The bytes are uploaded to S3 with the file's real MIME so range-request
+// playback works; playback is online-only (the bytes are never cached locally).
+function ingestMedia(name: string, format: 'audio' | 'video', mime?: string): Book {
+  return {
+    id: uid(), title: prettifyName(name.replace(/\.[^.]+$/, '')), author: '',
+    fileName: name, data: new ArrayBuffer(0),
+    numPages: 1, currentPage: 1, cover: null,
+    addedAt: Date.now(), lastReadAt: 0, format,
+    // `mime` is carried via the file's type; mimeFor() also recovers it from the
+    // extension, so we don't need to stash it on the book.
+  };
+}
+
 async function ingest(file: File | { name: string; buf: ArrayBuffer }): Promise<Book | null> {
   const name = (file as any).name as string;
   try {
@@ -1116,10 +1145,20 @@ async function ingest(file: File | { name: string; buf: ArrayBuffer }): Promise<
       case 'cbz': book = await ingestCbz(name, buf); break;
       case 'txt': book = ingestText(name, buf, 'txt'); break;
       case 'md': book = ingestText(name, buf, 'md'); break;
+      case 'audio': book = ingestMedia(name, 'audio', mime); break;
+      case 'video': book = ingestMedia(name, 'video', mime); break;
       default: book = await ingestPdf(name, buf); break;   // pdf
     }
+    // Upload the bytes (dbPut sends the format-appropriate content-type). For
+    // media we attach the bytes only for this upload, then make the offline copy
+    // for the byte-backed formats. Audio/video are online-only — they must NEVER
+    // go through cachePdf / the PDF LRU (large files would blow the quota guard).
+    book.data = buf;
     await dbPut(book);
-    cachePdf(book.id, buf, mimeFor(book.format ?? 'pdf', name));   // bytes in hand — make it offline-ready
+    if (format !== 'audio' && format !== 'video') {
+      cachePdf(book.id, buf, mimeFor(book.format ?? 'pdf', name));   // bytes in hand — make it offline-ready
+    }
+    book.data = new ArrayBuffer(0);   // drop the in-memory bytes; nothing else needs them
     return book;
   } catch (e) {
     console.error('ingest failed', e);
@@ -1131,7 +1170,7 @@ async function ingest(file: File | { name: string; buf: ArrayBuffer }): Promise<
 
 async function addFiles(files: FileList | File[]): Promise<void> {
   // Accept any format ingest understands this phase; reject the rest with a hint.
-  const SUPPORTED = new Set<DocFormat>(['pdf', 'cbz', 'txt', 'md']);
+  const SUPPORTED = new Set<DocFormat>(['pdf', 'cbz', 'txt', 'md', 'audio', 'video']);
   const arr = Array.from(files).filter(f => {
     const fmt = detectFormat(f.name, f.type);
     return fmt != null && SUPPORTED.has(fmt);
@@ -1624,17 +1663,164 @@ class ScrollTextAdapter implements DocAdapter {
   }
 }
 
-// Build the right adapter for a book's format from its raw bytes.
-async function makeAdapter(book: Book, bytes: ArrayBuffer, _urlFor?: () => Promise<string>): Promise<DocAdapter> {
+// mm:ss for media position labels (clamps NaN/negatives to 0:00).
+function fmtClock(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) sec = 0;
+  const s = Math.floor(sec % 60);
+  const m = Math.floor(sec / 60);
+  return m + ':' + (s < 10 ? '0' : '') + s;
+}
+
+// Audio / video, online-only. Streams from S3 via a fresh presigned URL rather
+// than downloading bytes (so it never goes through dbGet / the PDF LRU). A
+// native <audio>/<video> element handles playback and seeking; position is the
+// element's currentTime, persisted as {kind:'seconds'} on a throttled timeupdate
+// (and on pause/ended/unload). total=1, no paging/zoom/capture/text.
+class MediaAdapter implements DocAdapter {
+  readonly format: DocFormat;
+  readonly mode: DocMode = 'media';
+  readonly caps: DocCaps = {
+    paged: false,
+    canvasPages: false,
+    textSelectable: false,
+    regionClippable: false,
+    timeMedia: true,
+    reflowable: false,
+    zoomable: false,
+  };
+  readonly total = 1;
+  private urlFor: () => Promise<string>;
+  private media: HTMLMediaElement | null = null;
+  private duration = 0;
+  private startSeconds = 0;
+  private lastSaved = 0;
+  private onMeta = () => {};
+  private onTime = () => {};
+  private onError = () => {};
+  private onPause = () => {};
+  private onUnload = () => {};
+
+  constructor(book: Book, urlFor: () => Promise<string>) {
+    this.format = book.format === 'video' ? 'video' : 'audio';
+    this.urlFor = urlFor;
+  }
+
+  async render(pos: DocPos, ctx: RenderCtx, _keepScroll: boolean): Promise<void> {
+    const token = ctx.token;
+    this.startSeconds = Math.max(0, pos.seconds ?? 0);
+    const url = await this.urlFor();
+    if (token !== reader.renderToken) return; // superseded (closed / re-opened)
+
+    const col = ctx.col;
+    col.innerHTML = '';
+    const stage = document.createElement('div');
+    stage.className = 'media-stage ' + (this.format === 'video' ? 'is-video' : 'is-audio');
+
+    const elm = (this.format === 'video'
+      ? document.createElement('video')
+      : document.createElement('audio')) as HTMLMediaElement;
+    elm.controls = true;
+    elm.preload = 'metadata';
+    if (this.format === 'video') {
+      (elm as HTMLVideoElement).playsInline = true;
+      elm.setAttribute('playsinline', '');
+    }
+    elm.src = url;
+    this.media = elm;
+
+    // Restore the saved position once the browser knows the duration/seekable
+    // range; only seek when there's something to restore.
+    this.onMeta = () => {
+      this.duration = Number.isFinite(elm.duration) ? elm.duration : 0;
+      if (this.startSeconds > 0 && this.startSeconds < (this.duration || Infinity)) {
+        try { elm.currentTime = this.startSeconds; } catch { /* not seekable yet */ }
+      }
+      updateReaderChrome();
+    };
+    // Throttle hard: timeupdate fires ~4x/sec; persist at most every 4s.
+    this.onTime = () => {
+      const now = elm.currentTime;
+      setReaderPos({ seconds: now });
+      el('r-progress-bar').style.width = this.toBarPercent(reader.pos) + '%';
+      if (Math.abs(now - this.lastSaved) >= 4) { this.lastSaved = now; this.flush(); }
+    };
+    this.onPause = () => { this.lastSaved = elm.currentTime; this.flush(); };
+    this.onUnload = () => { if (this.media) { setReaderPos({ seconds: this.media.currentTime }); persistPos(); } };
+    // On a stream error (commonly an expired presigned URL), re-fetch a fresh
+    // URL and resume from the last known position.
+    this.onError = () => {
+      const at = elm.currentTime || this.startSeconds;
+      this.urlFor().then((fresh) => {
+        if (!this.media) return;
+        this.startSeconds = at;
+        this.media.src = fresh;
+        this.media.load();
+      }).catch(() => { toast(t('toast.mediaError')); });
+    };
+
+    elm.addEventListener('loadedmetadata', this.onMeta);
+    elm.addEventListener('timeupdate', this.onTime);
+    elm.addEventListener('pause', this.onPause);
+    elm.addEventListener('ended', this.onPause);
+    elm.addEventListener('error', this.onError);
+    window.addEventListener('pagehide', this.onUnload);
+
+    stage.appendChild(elm);
+    col.appendChild(stage);
+  }
+
+  private flush(): void {
+    if (!this.media) return;
+    setReaderPos({ seconds: this.media.currentTime });
+    persistPos();
+  }
+
+  toBarPercent(pos: DocPos): number {
+    const d = this.duration || (this.media && Number.isFinite(this.media.duration) ? this.media.duration : 0);
+    if (!d) return 0;
+    return Math.min(100, Math.max(0, ((pos.seconds ?? 0) / d) * 100));
+  }
+  posLabel(pos: DocPos): { current: string; total: string } {
+    const d = this.duration || (this.media && Number.isFinite(this.media.duration) ? this.media.duration : 0);
+    return { current: fmtClock(pos.seconds ?? 0), total: d ? fmtClock(d) : '' };
+  }
+  currentCanvas(): HTMLCanvasElement | null { return null; }
+  destroy(): void {
+    const m = this.media;
+    if (m) {
+      try {
+        m.removeEventListener('loadedmetadata', this.onMeta);
+        m.removeEventListener('timeupdate', this.onTime);
+        m.removeEventListener('pause', this.onPause);
+        m.removeEventListener('ended', this.onPause);
+        m.removeEventListener('error', this.onError);
+        m.pause();
+        m.removeAttribute('src');
+        m.src = '';
+        m.load();   // stop buffering / release the network connection
+      } catch { /* element already detached */ }
+    }
+    window.removeEventListener('pagehide', this.onUnload);
+    this.media = null;
+  }
+}
+
+// Build the right adapter for a book's format. Canvas/text formats parse `bytes`;
+// media formats stream from S3 and take a lazy presigned-URL getter instead
+// (openBook passes null bytes + urlFor for those — see makeAdapter call there).
+async function makeAdapter(book: Book, bytes: ArrayBuffer | null, urlFor?: () => Promise<string>): Promise<DocAdapter> {
   const format = book.format ?? 'pdf';
   switch (format) {
     case 'pdf':
-      return new PdfAdapter(await loadDoc(bytes));
+      return new PdfAdapter(await loadDoc(bytes!));
     case 'cbz':
-      return new CbzAdapter(await unzipCbz(bytes));
+      return new CbzAdapter(await unzipCbz(bytes!));
     case 'txt':
     case 'md':
-      return new ScrollTextAdapter(new TextDecoder('utf-8').decode(bytes), format);
+      return new ScrollTextAdapter(new TextDecoder('utf-8').decode(bytes!), format);
+    case 'audio':
+    case 'video':
+      return new MediaAdapter(book, urlFor ?? (() => presignedUrlFor(book.id)));
     default:
       throw new Error('Unsupported format: ' + format);
   }
@@ -1688,14 +1874,28 @@ async function openBook(id: string): Promise<void> {
   document.body.style.overflow = 'hidden';
   el('r-loading').classList.remove('hidden');
   try {
-    const bytes = await dbGet(id);
-    if (!bytes) { toast(t('toast.cantLoad')); el('r-loading').classList.add('hidden'); return; }
-    reader.adapter = await makeAdapter(b, bytes);
+    // Media (audio/video) is online-only: it streams from S3 via a fresh
+    // presigned URL and must NOT download bytes (no dbGet / no PDF LRU). All
+    // other formats fetch their bytes here.
+    const fmt = b.format ?? 'pdf';
+    const isMedia = fmt === 'audio' || fmt === 'video';
+    let bytes: ArrayBuffer | null = null;
+    if (isMedia) {
+      reader.adapter = await makeAdapter(b, null, () => presignedUrlFor(id));
+    } else {
+      bytes = await dbGet(id);
+      if (!bytes) { toast(t('toast.cantLoad')); el('r-loading').classList.add('hidden'); return; }
+      reader.adapter = await makeAdapter(b, bytes);
+    }
     // Scroll formats restore a 0..1 scroll fraction (stored generalized as
-    // book.progress) rather than a page; paged formats keep the page set above.
+    // book.progress) rather than a page; media restores a seconds offset;
+    // paged formats keep the page set above.
     if (reader.adapter.mode === 'scroll') {
       const stored = b.progress?.kind === 'fraction' ? Number(b.progress.value) : 0;
       setReaderPos({ fraction: Number.isFinite(stored) ? stored : 0 });
+    } else if (reader.adapter.mode === 'media') {
+      const stored = b.progress?.kind === 'seconds' ? Number(b.progress.value) : 0;
+      setReaderPos({ seconds: Number.isFinite(stored) ? stored : 0 });
     }
     // Gate reader chrome on the adapter's capabilities. For PDF every cap is on,
     // so no class is added and the UI is unchanged.
@@ -1828,6 +2028,8 @@ function persistPos(): void {
   const b = reader.book; if (!b) return;
   if (reader.adapter?.mode === 'scroll') {
     b.progress = { kind: 'fraction', value: Math.min(Math.max(reader.pos.fraction ?? 0, 0), 1) };
+  } else if (reader.adapter?.mode === 'media') {
+    b.progress = { kind: 'seconds', value: Math.max(0, reader.pos.seconds ?? 0) };
   } else if (reader.pos.page != null) {
     b.currentPage = reader.pos.page;
   }
@@ -1836,6 +2038,14 @@ function persistPos(): void {
   if (cached) { cached.currentPage = b.currentPage; cached.progress = b.progress; cached.lastReadAt = b.lastReadAt; }
   window.clearTimeout(reader.saveTimer);
   reader.saveTimer = window.setTimeout(() => { dbPutProgress(b).catch(() => {}); }, 350);
+}
+
+// Toggle play/pause for the current media element (Space shortcut). Best-effort:
+// no-op if there's no media element or autoplay is blocked.
+function toggleMediaPlayback(): void {
+  const m = el('r-col').querySelector('audio,video') as HTMLMediaElement | null;
+  if (!m) return;
+  if (m.paused) m.play().catch(() => {}); else m.pause();
 }
 
 function go(delta: number): void {
@@ -2346,6 +2556,11 @@ function wireReader(): void {
     // Scroll formats: leave paging/scroll keys to the browser's native handling
     // (Space/PageDown scroll the column); only the global shortcuts below apply.
     const paged = reader.adapter ? reader.adapter.mode === 'canvas' : true;
+    // Media: Space toggles play/pause (native controls handle seeking). Other
+    // keys fall through to global shortcuts (f/Escape) below.
+    if (!paged && reader.adapter?.mode === 'media' && k === ' ') {
+      e.preventDefault(); toggleMediaPlayback(); return;
+    }
     if (paged && (k === 'ArrowRight' || k === 'PageDown' || k === ' ')) { e.preventDefault(); go(1); }
     else if (paged && (k === 'ArrowLeft' || k === 'PageUp')) { e.preventDefault(); go(-1); }
     else if (paged && k === 'ArrowDown') { el('r-stage').scrollTop += 120; }
