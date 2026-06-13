@@ -15,14 +15,53 @@ const PK = 'lib'; // single-user partition
 
 const pdfKey = (id) => `pdfs/${id}.pdf`;
 
+// Clippings are sibling items under a composite range key. Book ids are
+// `b<base36>` and never contain '#', so the separator is unambiguous.
+const CLIP_SEP = '#hl#';
+export const clipItemId = (bookId, clipId) => `${bookId}${CLIP_SEP}${clipId}`;
+export const isClipItem = (id) => id.includes(CLIP_SEP);
+export const parseClipId = (itemId) => {
+  const i = itemId.indexOf(CLIP_SEP);
+  return i < 0 ? null : { bookId: itemId.slice(0, i), clipId: itemId.slice(i + CLIP_SEP.length) };
+};
+
 export async function listBooks() {
   const out = await ddb.send(new QueryCommand({
     TableName: TABLE,
     KeyConditionExpression: 'pk = :pk',
-    ExpressionAttributeValues: { ':pk': PK },
+    FilterExpression: 'NOT contains(#id, :sep)',
+    ExpressionAttributeNames: { '#id': 'id' },
+    ExpressionAttributeValues: { ':pk': PK, ':sep': CLIP_SEP },
   }));
   // Strip the partition key from the response.
   return (out.Items ?? []).map(({ pk, ...rest }) => rest);
+}
+
+export async function listClippings(bookId) {
+  const out = await ddb.send(new QueryCommand({
+    TableName: TABLE,
+    KeyConditionExpression: 'pk = :pk AND begins_with(#id, :pfx)',
+    ExpressionAttributeNames: { '#id': 'id' },
+    ExpressionAttributeValues: { ':pk': PK, ':pfx': clipItemId(bookId, '') },
+  }));
+  return (out.Items ?? []).map(({ pk, id, bookId: _b, ...rest }) => ({
+    id: parseClipId(id)?.clipId ?? id,
+    ...rest,
+  }));
+}
+
+export async function putClipping(bookId, clip) {
+  await ddb.send(new PutCommand({
+    TableName: TABLE,
+    Item: { pk: PK, id: clipItemId(bookId, clip.id), bookId, ...clip },
+  }));
+}
+
+export async function deleteClipping(bookId, clipId) {
+  await ddb.send(new DeleteCommand({
+    TableName: TABLE,
+    Key: { pk: PK, id: clipItemId(bookId, clipId) },
+  }));
 }
 
 export async function putBook(book) {

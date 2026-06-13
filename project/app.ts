@@ -32,6 +32,20 @@ interface Book {
 }
 type ViewMode = 'shelf' | 'grid' | 'list';
 
+// A clipping: a saved selection from one page. rects are normalized page
+// coordinates (fractions 0..1) so they reflow across zoom/width/resize.
+// A region clip has one rect; a text clip (phase 2) has one rect per line + text.
+interface Rect { x: number; y: number; w: number; h: number; }
+interface Clip {
+  id: string;
+  page: number;
+  rects: Rect[];
+  color: string;
+  text?: string;
+  note?: string;
+  createdAt: number;
+}
+
 // ---------- tiny DOM helpers ----------
 const $ = <T extends HTMLElement = HTMLElement>(sel: string): T =>
   document.querySelector(sel) as T;
@@ -123,6 +137,18 @@ const EN = {
   'time.justNow': 'Just now',
   'pwa.updated': 'Folium Café has been updated',
   'pwa.installed': 'Folium Café is on your home screen',
+  'clip.snapshot': 'Snapshot and share',
+  'clip.captureHint': 'Drag a box over the page — Esc to cancel',
+  'clip.sheetTitle': 'Share a clipping',
+  'clip.color': 'Highlight colour',
+  'clip.save': 'Save clipping',
+  'clip.share': 'Share',
+  'clip.download': 'Download',
+  'clip.delete': 'Delete',
+  'clip.close': 'Close',
+  'clip.saved': 'Clipping saved',
+  'clip.removed': 'Clipping removed',
+  'clip.shareFailed': 'Could not share — downloaded instead',
 } as const;
 type MsgKey = keyof typeof EN;
 
@@ -203,6 +229,18 @@ const PT: Record<MsgKey, string> = {
   'time.justNow': 'Agora mesmo',
   'pwa.updated': 'O Folium Café foi atualizado',
   'pwa.installed': 'O Folium Café está na sua tela inicial',
+  'clip.snapshot': 'Recortar e compartilhar',
+  'clip.captureHint': 'Arraste uma caixa sobre a página — Esc para cancelar',
+  'clip.sheetTitle': 'Compartilhar um recorte',
+  'clip.color': 'Cor do destaque',
+  'clip.save': 'Salvar recorte',
+  'clip.share': 'Compartilhar',
+  'clip.download': 'Baixar',
+  'clip.delete': 'Excluir',
+  'clip.close': 'Fechar',
+  'clip.saved': 'Recorte salvo',
+  'clip.removed': 'Recorte removido',
+  'clip.shareFailed': 'Não foi possível compartilhar — baixado em vez disso',
 };
 
 const ES: Record<MsgKey, string> = {
@@ -282,6 +320,18 @@ const ES: Record<MsgKey, string> = {
   'time.justNow': 'Ahora mismo',
   'pwa.updated': 'Folium Café se ha actualizado',
   'pwa.installed': 'Folium Café está en tu pantalla de inicio',
+  'clip.snapshot': 'Recortar y compartir',
+  'clip.captureHint': 'Arrastra un recuadro sobre la página — Esc para cancelar',
+  'clip.sheetTitle': 'Compartir un recorte',
+  'clip.color': 'Color de resaltado',
+  'clip.save': 'Guardar recorte',
+  'clip.share': 'Compartir',
+  'clip.download': 'Descargar',
+  'clip.delete': 'Eliminar',
+  'clip.close': 'Cerrar',
+  'clip.saved': 'Recorte guardado',
+  'clip.removed': 'Recorte eliminado',
+  'clip.shareFailed': 'No se pudo compartir — descargado en su lugar',
 };
 
 const DICTS: Record<Locale, Record<MsgKey, string>> = { en: EN, 'pt-BR': PT, es: ES };
@@ -536,6 +586,91 @@ function stripData(b: Book): BookMeta {
   return rest;
 }
 
+// ---------- clippings (data) ----------
+const DEFAULT_CLIP_COLOR = '#dcb064';
+const CLIP_COLORS = ['#dcb064', '#5e261d', '#3c5340', '#e8c34a'];
+const cid = (): string => 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const clipsKey = (bookId: string) => '/data-store/clips/' + encodeURIComponent(bookId);
+
+interface ClipOp { op: 'put' | 'del'; bookId: string; clip?: Clip; clipId?: string; }
+
+async function readClipCache(bookId: string): Promise<Clip[]> {
+  try {
+    const hit = await (await caches.open(DATA_CACHE)).match(clipsKey(bookId));
+    return hit ? ((await hit.json()).clips as Clip[]) : [];
+  } catch { return []; }
+}
+async function writeClipCache(bookId: string, clips: Clip[]): Promise<void> {
+  try {
+    await (await caches.open(DATA_CACHE)).put(clipsKey(bookId), new Response(JSON.stringify({ clips })));
+  } catch { /* best-effort */ }
+}
+
+// List a book's clippings; network-first with an offline cache fallback.
+async function clipsAll(bookId: string): Promise<Clip[]> {
+  try {
+    const res = await api('/books/' + encodeURIComponent(bookId) + '/clips');
+    if (!res.ok) throw new ApiNetworkError('clips ' + res.status);
+    const body = await res.json();
+    await writeClipCache(bookId, body.clips as Clip[]);
+    return body.clips as Clip[];
+  } catch (e) {
+    if (e instanceof ApiAuthError) throw e;
+    return readClipCache(bookId);
+  }
+}
+
+async function clipPut(bookId: string, clip: Clip): Promise<void> {
+  const arr = await readClipCache(bookId);
+  const i = arr.findIndex(x => x.id === clip.id);
+  if (i >= 0) arr[i] = clip; else arr.push(clip);
+  await writeClipCache(bookId, arr);
+  try {
+    await api('/books/' + encodeURIComponent(bookId) + '/clips',
+      { method: 'POST', body: JSON.stringify(clip) });
+  } catch (e) {
+    if (e instanceof ApiNetworkError) { enqueueClip({ op: 'put', bookId, clip }); return; }
+    throw e;
+  }
+}
+
+async function clipDel(bookId: string, clipId: string): Promise<void> {
+  await writeClipCache(bookId, (await readClipCache(bookId)).filter(x => x.id !== clipId));
+  try {
+    await api('/books/' + encodeURIComponent(bookId) + '/clips/' + encodeURIComponent(clipId),
+      { method: 'DELETE' });
+  } catch (e) {
+    if (e instanceof ApiNetworkError) { enqueueClip({ op: 'del', bookId, clipId }); return; }
+    throw e;
+  }
+}
+
+// Ordered op log (a put must reach the server before its delete), replayed FIFO.
+function enqueueClip(op: ClipOp): void {
+  let q: ClipOp[];
+  try { q = JSON.parse(localStorage.getItem(LS.clipQueue) || '[]'); } catch { q = []; }
+  q.push(op);
+  localStorage.setItem(LS.clipQueue, JSON.stringify(q));
+}
+async function flushClipQueue(): Promise<void> {
+  let q: ClipOp[];
+  try { q = JSON.parse(localStorage.getItem(LS.clipQueue) || '[]'); } catch { return; }
+  while (q.length) {
+    const op = q[0];
+    try {
+      if (op.op === 'put') {
+        await api('/books/' + encodeURIComponent(op.bookId) + '/clips',
+          { method: 'POST', body: JSON.stringify(op.clip) });
+      } else {
+        await api('/books/' + encodeURIComponent(op.bookId) + '/clips/' + encodeURIComponent(op.clipId!),
+          { method: 'DELETE' });
+      }
+      q.shift();
+      localStorage.setItem(LS.clipQueue, JSON.stringify(q));
+    } catch { break; }  // still offline (or logged out): retry on the next trigger
+  }
+}
+
 // ---------- state ----------
 const LS = {
   user: 'folium.user',
@@ -543,6 +678,7 @@ const LS = {
   width: 'folium.readerWidth',
   pdfLru: 'folium.pdfLru',
   progressQueue: 'folium.progressQueue',
+  clipQueue: 'folium.clipQueue',
   lang: 'folium.lang',
 };
 migrateLocalStorage();   // must run before viewMode/reader.width read their keys
@@ -809,6 +945,8 @@ const reader = {
   saveTimer: 0 as any,
   peekTimer: 0 as any,
   wheelLock: 0,
+  clips: [] as Clip[],
+  capturing: false,
 };
 
 async function openBook(id: string): Promise<void> {
@@ -818,6 +956,8 @@ async function openBook(id: string): Promise<void> {
   reader.book = b;
   reader.page = Math.min(Math.max(1, b.currentPage || 1), b.numPages);
   reader.zoom = 1;
+  reader.clips = [];
+  exitCapture();
   el('r-title-t').textContent = b.title;
   el('r-title-a').textContent = b.author || '';
   el('r-total').textContent = '/ ' + b.numPages;
@@ -830,9 +970,13 @@ async function openBook(id: string): Promise<void> {
     const bytes = await dbGet(id);
     if (!bytes) { toast(t('toast.cantLoad')); el('r-loading').classList.add('hidden'); return; }
     reader.doc = await loadDoc(bytes);
+    // An offline clip load is fine (empty); a real 401 must not leave the
+    // reader open behind the login screen.
+    reader.clips = await clipsAll(id).catch(e => { if (e instanceof ApiAuthError) throw e; return []; });
     await renderPage(reader.page, false);
   } catch (e) {
     console.error(e);
+    if (e instanceof ApiAuthError) { closeReader(); return; }
     if (e instanceof ApiNetworkError) toast(t('toast.notDownloaded'));
     else toast(t('toast.loadFailed'));
   }
@@ -841,9 +985,11 @@ async function openBook(id: string): Promise<void> {
 
 function closeReader(): void {
   exitZen();
+  exitCapture();
   el('reader').classList.remove('show');
   document.body.style.overflow = '';
   reader.doc = null; reader.book = null;
+  reader.clips = [];
   renderLibrary();
 }
 
@@ -882,11 +1028,37 @@ async function renderPage(n: number, keepScroll: boolean): Promise<void> {
   const wrap = document.createElement('div');
   wrap.className = 'rpage';
   wrap.appendChild(canvas);
+  const cssW = targetCSS;
+  const cssH = Math.round(targetCSS * (v1.height / v1.width));
+  renderClipOverlay(wrap, cssW, cssH);
   col.appendChild(wrap);
 
   if (!keepScroll) el('r-stage').scrollTop = 0;
   updateReaderChrome();
   persistPage();
+}
+
+// Draws saved clips for the current page as overlay boxes over the page canvas.
+function renderClipOverlay(wrap: HTMLElement, cssW: number, cssH: number): void {
+  const here = reader.clips.filter(c => c.page === reader.page);
+  if (!here.length) return;
+  const layer = document.createElement('div');
+  layer.className = 'rclips';
+  for (const c of here) {
+    for (const r of c.rects) {
+      if (r.w <= 0 || r.h <= 0) continue;
+      const box = document.createElement('div');
+      box.className = c.text ? 'rclip text' : 'rclip';
+      box.dataset.clip = c.id;
+      box.style.left = (r.x * cssW) + 'px';
+      box.style.top = (r.y * cssH) + 'px';
+      box.style.width = (r.w * cssW) + 'px';
+      box.style.height = (r.h * cssH) + 'px';
+      box.style.setProperty('--clip-color', c.color || DEFAULT_CLIP_COLOR);
+      layer.appendChild(box);
+    }
+  }
+  wrap.appendChild(layer);
 }
 
 function updateReaderChrome(): void {
@@ -922,6 +1094,7 @@ function go(delta: number): void {
 // cooldown stops trackpad momentum from skipping multiple pages per gesture.
 function onReaderWheel(e: WheelEvent): void {
   if (!reader.doc || !reader.book) return;
+  if (reader.capturing) { e.preventDefault(); return; }   // no paging mid-capture
   const down = e.deltaY > 0, up = e.deltaY < 0;
   if (!down && !up) return; // pure horizontal / no vertical intent
 
@@ -979,6 +1152,146 @@ function peek(): void {
   reader.peekTimer = window.setTimeout(() => rd.classList.remove('peek'), 2200);
 }
 
+// ============================================================
+//  CLIPPINGS — capture, card, share
+// ============================================================
+function exitCapture(): void {
+  reader.capturing = false;
+  const rd = document.getElementById('reader'); if (rd) rd.classList.remove('capturing');
+  const snap = document.getElementById('r-snap'); if (snap) snap.classList.remove('active');
+  const sel = document.getElementById('r-capsel'); if (sel) sel.classList.remove('show');
+}
+function toggleCapture(): void {
+  if (!reader.doc) return;
+  reader.capturing = !reader.capturing;
+  el('reader').classList.toggle('capturing', reader.capturing);
+  el('r-snap').classList.toggle('active', reader.capturing);
+  if (reader.capturing) toast(t('clip.captureHint'));
+  else { const sel = document.getElementById('r-capsel'); if (sel) sel.classList.remove('show'); }
+}
+
+function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function fitText(ctx: CanvasRenderingContext2D, s: string, maxW: number): string {
+  if (ctx.measureText(s).width <= maxW) return s;
+  let str = s;
+  while (str.length > 1 && ctx.measureText(str + '…').width > maxW) str = str.slice(0, -1);
+  return str + '…';
+}
+
+// Compose a branded quote card: the cropped region matted on warm paper with the
+// book title and a Folium mark. `rect` is normalized; `src` is the live page canvas.
+async function composeRegionCard(src: HTMLCanvasElement, rect: Rect, title: string): Promise<Blob> {
+  const W = 1080, H = 1350, pad = 84, footerH = 176;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d')!;
+  ctx.fillStyle = '#efe6d2';
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(178,133,58,.55)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(pad, pad); ctx.lineTo(W - pad, pad); ctx.stroke();
+
+  const sx = rect.x * src.width, sy = rect.y * src.height;
+  const sw = Math.max(1, rect.w * src.width), sh = Math.max(1, rect.h * src.height);
+  const ar = sw / sh;
+  const boxW = W - 2 * pad, boxH = H - 2 * pad - footerH;
+  let dw = boxW, dh = dw / ar;
+  if (dh > boxH) { dh = boxH; dw = dh * ar; }
+  const dx = (W - dw) / 2, dy = pad + 24 + (boxH - dh) / 2;
+
+  ctx.save();
+  ctx.shadowColor = 'rgba(40,26,12,.35)'; ctx.shadowBlur = 40; ctx.shadowOffsetY = 18;
+  ctx.fillStyle = '#fdfaf2';
+  roundRectPath(ctx, dx - 16, dy - 16, dw + 32, dh + 32, 6);
+  ctx.fill();
+  ctx.restore();
+  ctx.drawImage(src, sx, sy, sw, sh, dx, dy, dw, dh);
+  ctx.strokeStyle = '#c9b88f'; ctx.lineWidth = 1;
+  ctx.strokeRect(dx - 16, dy - 16, dw + 32, dh + 32);
+
+  try { await (document as any).fonts.ready; } catch { /* fall back to system serif */ }
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#5e261d';
+  ctx.font = '700 44px "Zilla Slab", Georgia, serif';
+  ctx.fillText(fitText(ctx, title, W - 2 * pad), W / 2, H - pad - 46);
+  ctx.fillStyle = '#897a5f';
+  ctx.font = 'italic 28px "Spectral", Georgia, serif';
+  ctx.fillText('❦  folium.cafe', W / 2, H - pad - 4);
+
+  return await new Promise<Blob>((resolve) => cv.toBlob((b) => resolve(b!), 'image/png'));
+}
+
+function downloadBlob(blob: Blob, name: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+async function shareOrDownload(blob: Blob, book: Book): Promise<void> {
+  const file = new File([blob], 'folium-clip.png', { type: 'image/png' });
+  const nav: any = navigator;
+  if (nav.canShare && nav.canShare({ files: [file] })) {
+    try {
+      await nav.share({ files: [file], title: book.title, text: '“' + book.title + '” — folium.cafe' });
+      return;
+    } catch (e: any) {
+      if (e && e.name === 'AbortError') return;   // user dismissed the sheet
+      downloadBlob(blob, 'folium-clip.png');
+      toast(t('clip.shareFailed'));
+      return;
+    }
+  }
+  downloadBlob(blob, 'folium-clip.png');
+}
+
+// ---------- clip share sheet ----------
+let sheetState: { rect: Rect; clip?: Clip; color: string; blob?: Blob } | null = null;
+
+async function openClipSheet(arg: { clip?: Clip; region?: { rect: Rect } }): Promise<void> {
+  const book = reader.book; if (!book) return;
+  const canvas = el('r-col').querySelector('canvas') as HTMLCanvasElement | null;
+  if (!canvas) return;
+  const clip = arg.clip;
+  const rect = clip ? clip.rects[0] : arg.region!.rect;
+  if (!rect) return;
+  sheetState = { rect, clip, color: clip?.color || DEFAULT_CLIP_COLOR };
+  const blob = await composeRegionCard(canvas, rect, book.title);
+  sheetState.blob = blob;
+  const img = el('clip-preview') as HTMLImageElement;
+  if (img.src) URL.revokeObjectURL(img.src);
+  img.src = URL.createObjectURL(blob);
+  renderSwatches();
+  el('clip-save').classList.toggle('hidden', !!clip);
+  el('clip-colors').classList.toggle('hidden', !!clip);
+  el('clip-delete').classList.toggle('hidden', !clip);
+  el('clip-sheet').classList.remove('hidden');
+}
+function renderSwatches(): void {
+  const wrap = el('clip-colors');
+  wrap.innerHTML = '';
+  for (const c of CLIP_COLORS) {
+    const b = document.createElement('button');
+    b.className = 'swatch' + (sheetState && sheetState.color === c ? ' active' : '');
+    b.style.background = c;
+    b.dataset.color = c;
+    wrap.appendChild(b);
+  }
+}
+function closeClipSheet(): void {
+  const img = el('clip-preview') as HTMLImageElement;
+  if (img.src) { URL.revokeObjectURL(img.src); img.removeAttribute('src'); }
+  el('clip-sheet').classList.add('hidden');
+  sheetState = null;
+}
+
 function wireReader(): void {
   el('r-back').addEventListener('click', closeReader);
   el('r-prev').addEventListener('click', () => go(-1));
@@ -987,6 +1300,89 @@ function wireReader(): void {
   el('r-next-s').addEventListener('click', () => go(1));
   el('r-stage').addEventListener('wheel', onReaderWheel, { passive: false });
   el('r-focus').addEventListener('click', toggleZen);
+
+  // --- clippings: snapshot capture + saved-clip taps + share sheet ---
+  el('r-snap').addEventListener('click', toggleCapture);
+
+  let capStart: { x: number; y: number } | null = null;
+  let suppressClick = false;
+  const stageEl = el('r-stage');
+  stageEl.addEventListener('pointerdown', (e) => {
+    if (!reader.capturing) return;
+    e.preventDefault();
+    capStart = { x: e.clientX, y: e.clientY };
+    const sel = el('r-capsel');
+    Object.assign(sel.style, { left: e.clientX + 'px', top: e.clientY + 'px', width: '0px', height: '0px' });
+    sel.classList.add('show');
+    try { stageEl.setPointerCapture(e.pointerId); } catch { /* unsupported */ }
+  });
+  stageEl.addEventListener('pointermove', (e) => {
+    if (!reader.capturing || !capStart) return;
+    const x = Math.min(e.clientX, capStart.x), y = Math.min(e.clientY, capStart.y);
+    const w = Math.abs(e.clientX - capStart.x), h = Math.abs(e.clientY - capStart.y);
+    Object.assign(el('r-capsel').style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px' });
+  });
+  stageEl.addEventListener('pointerup', (e) => {
+    if (!reader.capturing || !capStart) return;
+    const x0 = Math.min(e.clientX, capStart.x), y0 = Math.min(e.clientY, capStart.y);
+    const x1 = Math.max(e.clientX, capStart.x), y1 = Math.max(e.clientY, capStart.y);
+    capStart = null;
+    suppressClick = true;   // the drag also fires a click; don't page-turn on it
+    const canvas = el('r-col').querySelector('canvas') as HTMLCanvasElement | null;
+    exitCapture();
+    if (!canvas) return;
+    const cb = canvas.getBoundingClientRect();
+    const ix0 = Math.max(x0, cb.left), iy0 = Math.max(y0, cb.top);
+    const ix1 = Math.min(x1, cb.right), iy1 = Math.min(y1, cb.bottom);
+    const iw = ix1 - ix0, ih = iy1 - iy0;
+    if (iw < 10 || ih < 10) return;   // too small or outside the page
+    openClipSheet({ region: { rect: { x: (ix0 - cb.left) / cb.width, y: (iy0 - cb.top) / cb.height, w: iw / cb.width, h: ih / cb.height } } });
+  });
+  stageEl.addEventListener('pointercancel', () => { capStart = null; suppressClick = false; exitCapture(); });
+  // A capture drag also emits a click; consume it in the capture phase so it
+  // reaches neither the page-turn handler nor a clip box it happened to end on.
+  stageEl.addEventListener('click', (e) => {
+    if (suppressClick) { suppressClick = false; e.stopPropagation(); e.preventDefault(); }
+  }, true);
+
+  // tap a saved clip box → open its share sheet
+  el('r-col').addEventListener('click', (e) => {
+    const box = (e.target as HTMLElement).closest('.rclip') as HTMLElement | null;
+    if (!box) return;
+    e.stopPropagation();
+    const c = reader.clips.find(x => x.id === box.dataset.clip);
+    if (c) openClipSheet({ clip: c });
+  });
+
+  // share sheet
+  el('clip-colors').addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest('.swatch') as HTMLElement | null;
+    if (!b || !sheetState) return;
+    sheetState.color = b.dataset.color!;
+    renderSwatches();
+  });
+  el('clip-share').addEventListener('click', () => { if (sheetState?.blob && reader.book) shareOrDownload(sheetState.blob, reader.book); });
+  el('clip-download').addEventListener('click', () => { if (sheetState?.blob) downloadBlob(sheetState.blob, 'folium-clip.png'); });
+  el('clip-save').addEventListener('click', async () => {
+    if (!sheetState || !reader.book) return;
+    const clip: Clip = { id: cid(), page: reader.page, rects: [sheetState.rect], color: sheetState.color, createdAt: Date.now() };
+    reader.clips.push(clip);
+    closeClipSheet();
+    renderPage(reader.page, true);
+    toast(t('clip.saved'));
+    try { await clipPut(reader.book.id, clip); } catch (err) { console.error(err); }
+  });
+  el('clip-delete').addEventListener('click', async () => {
+    if (!sheetState?.clip || !reader.book) return;
+    const id = sheetState.clip.id, bookId = reader.book.id;
+    reader.clips = reader.clips.filter(x => x.id !== id);
+    closeClipSheet();
+    renderPage(reader.page, true);
+    toast(t('clip.removed'));
+    try { await clipDel(bookId, id); } catch (err) { console.error(err); }
+  });
+  el('clip-close').addEventListener('click', closeClipSheet);
+  el('clip-sheet').addEventListener('click', (e) => { if (e.target === el('clip-sheet')) closeClipSheet(); });
 
   el('r-zoom-in').addEventListener('click', () => { reader.zoom = Math.min(reader.zoom + 0.15, 2.2); renderPage(reader.page, true); });
   el('r-zoom-out').addEventListener('click', () => { reader.zoom = Math.max(reader.zoom - 0.15, 0.6); renderPage(reader.page, true); });
@@ -1013,7 +1409,9 @@ function wireReader(): void {
   // mouse reveal in zen
   el('reader').addEventListener('mousemove', peek);
   el('r-stage').addEventListener('click', (e) => {
-    // click left/right thirds to page (only when not selecting text)
+    // click left/right thirds to page (only when not selecting text or capturing)
+    if (reader.capturing) return;
+    if (suppressClick) { suppressClick = false; return; }
     if (window.getSelection && String(window.getSelection())) return;
     const x = (e as MouseEvent).clientX;
     const w = window.innerWidth;
@@ -1038,7 +1436,12 @@ function wireReader(): void {
     else if (k === 'Home') { e.preventDefault(); renderPage(1, false); }
     else if (k === 'End' && reader.book) { e.preventDefault(); renderPage(reader.book.numPages, false); }
     else if (k === 'f' || k === 'F') { toggleZen(); }
-    else if (k === 'Escape') { if (el('reader').classList.contains('zen')) exitZen(); else closeReader(); }
+    else if (k === 'Escape') {
+      if (reader.capturing) exitCapture();
+      else if (!el('clip-sheet').classList.contains('hidden')) closeClipSheet();
+      else if (el('reader').classList.contains('zen')) exitZen();
+      else closeReader();
+    }
   });
 
   window.addEventListener('resize', onResize);
@@ -1088,6 +1491,7 @@ function wireAuth(): void {
     // Logout means "this device is no longer mine": drop everything local.
     localStorage.removeItem(LS.pdfLru);
     localStorage.removeItem(LS.progressQueue);
+    localStorage.removeItem(LS.clipQueue);
     try {
       await Promise.all([caches.delete(PDF_CACHE), caches.delete(DATA_CACHE), caches.delete(SHARED_CACHE)]);
     } catch {}
@@ -1136,6 +1540,7 @@ async function boot(): Promise<void> {
   if (booted) { renderLibrary(); return; }
   booted = true;
   flushProgressQueue();   // replay page turns queued while offline
+  flushClipQueue();       // replay clipping create/delete ops queued offline
   await refreshOfflineIds();
   try {
     books = (await dbAll()) as unknown as Book[];
@@ -1203,6 +1608,7 @@ function wirePwa(): void {
 
   window.addEventListener('online', () => {
     flushProgressQueue();
+    flushClipQueue();
     if (!el('app').classList.contains('hidden')) { booted = false; boot(); }
   });
 

@@ -314,7 +314,7 @@ button{font-family:inherit;cursor:pointer}
 .rstage::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:99px;border:3px solid transparent;background-clip:content-box}
 .rcanvas-wrap{display:flex;justify-content:center;padding:34px 24px 60px;min-height:100%}
 .rcanvas-col{display:flex;flex-direction:column;align-items:center;gap:26px;width:100%}
-.rpage{background:#fff;box-shadow:0 24px 60px -18px rgba(0,0,0,.7),0 2px 0 rgba(255,255,255,.05);
+.rpage{position:relative;background:#fff;box-shadow:0 24px 60px -18px rgba(0,0,0,.7),0 2px 0 rgba(255,255,255,.05);
   border-radius:1px;max-width:100%}
 .rpage canvas{display:block;border-radius:1px}
 
@@ -405,3 +405,43 @@ body{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-ri
 /* longer pt/es strings */
 #toast{max-width:min(560px,92vw);text-align:center}
 .dropdown{min-width:210px;width:max-content;max-width:280px}
+
+/* ============================================================
+   CLIPPINGS — overlay boxes, capture selection, share sheet
+   ============================================================ */
+.rclips{position:absolute;inset:0;pointer-events:none}
+.rclip{position:absolute;pointer-events:auto;cursor:pointer;border:2px solid var(--clip-color,#dcb064);
+  border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.15);transition:background .15s}
+.rclip:hover{background:color-mix(in srgb, var(--clip-color,#dcb064) 22%, transparent)}
+.rclip.text{border-width:0;background:color-mix(in srgb, var(--clip-color,#dcb064) 38%, transparent);
+  mix-blend-mode:multiply;border-radius:1px}
+.rclip.text:hover{background:color-mix(in srgb, var(--clip-color,#dcb064) 55%, transparent)}
+
+#r-snap.active{background:linear-gradient(180deg,var(--brass-hi),var(--brass));color:#3a2410;
+  border-color:var(--wood-2)}
+#reader.capturing .rstage{cursor:crosshair;touch-action:none}
+#reader.capturing .rpage{user-select:none}
+#r-capsel{position:fixed;z-index:45;display:none;pointer-events:none;border-radius:2px;
+  border:2px dashed var(--brass-hi);background:rgba(220,176,100,.14)}
+#r-capsel.show{display:block}
+
+#clip-sheet{position:fixed;inset:0;z-index:55;display:grid;place-items:center;
+  background:rgba(28,17,10,.55);padding:20px}
+.clip-card{position:relative;width:min(420px,100%);max-height:92vh;overflow:auto;
+  background:linear-gradient(180deg,#f8f1e3,#f1e7d2);border:1px solid var(--rule);border-radius:4px;
+  padding:22px 22px 20px;box-shadow:var(--shadow-3),inset 0 1px 0 rgba(255,255,255,.6)}
+.clip-card h2{margin:0 0 14px;text-align:center;font-size:12px}
+.clip-preview-wrap{display:flex;justify-content:center;background:#e7dabd;border:1px solid var(--rule-soft);
+  border-radius:3px;padding:10px;margin-bottom:14px}
+#clip-preview{max-width:100%;max-height:48vh;border-radius:2px;box-shadow:var(--shadow-2)}
+.clip-colors{display:flex;gap:10px;justify-content:center;margin-bottom:16px}
+.clip-colors .swatch{width:26px;height:26px;border-radius:50%;border:2px solid rgba(0,0,0,.18);
+  cursor:pointer;padding:0;transition:transform .12s,box-shadow .12s}
+.clip-colors .swatch.active{box-shadow:0 0 0 2px var(--paper),0 0 0 4px var(--leather);transform:scale(1.08)}
+.clip-actions{display:flex;flex-direction:column;gap:9px}
+.clip-actions .btn-primary{margin:0}
+.clip-actions .mast-btn{justify-content:center;background:transparent;color:var(--ink);
+  border:1px solid var(--rule);text-transform:none;letter-spacing:.02em;font-family:var(--read);
+  font-size:14px;font-weight:500;padding:11px}
+.clip-actions .mast-btn:hover{background:rgba(110,74,41,.08);border-color:var(--wood-hi)}
+#clip-delete{color:var(--leather)}

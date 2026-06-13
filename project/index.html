@@ -116,6 +116,7 @@
       <button id="r-zoom-out" title="Zoom out" data-i18n-title="rdr.zoomOut">–</button>
       <button id="r-zoom-in" title="Zoom in" data-i18n-title="rdr.zoomIn">+</button>
     </div>
+    <button class="ico" id="r-snap" title="Snapshot and share" data-i18n-title="clip.snapshot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg></button>
     <button class="ico" id="r-focus" title="Distraction-free (F)" data-i18n-title="rdr.focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M16 21h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
   </div>
   <div class="rstage" id="r-stage">
@@ -126,6 +127,7 @@
   <button class="rnav next" id="r-next" title="Next" data-i18n-title="rdr.next"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>
   <div class="rprogress"><i id="r-progress-bar"></i></div>
   <div class="zen-hint" id="zen-hint" data-i18n="rdr.zenHint">Move the cursor up to show controls · Esc to exit</div>
+  <div id="r-capsel"></div>
 </section>
 
 <!-- ============ DROP ZONE ============ -->
@@ -145,6 +147,22 @@
       </select>
     </div>
     <button class="btn-primary" id="settings-done" data-i18n="settings.done">Done</button>
+  </div>
+</div>
+
+<!-- ============ CLIPPING SHARE SHEET ============ -->
+<div id="clip-sheet" class="hidden" role="dialog" aria-modal="true" aria-labelledby="clip-sheet-title">
+  <div class="clip-card">
+    <h2 id="clip-sheet-title" class="smallcaps" data-i18n="clip.sheetTitle">Share a clipping</h2>
+    <div class="clip-preview-wrap"><img id="clip-preview" alt=""></div>
+    <div class="clip-colors" id="clip-colors" aria-label="Highlight colour" data-i18n-aria="clip.color"></div>
+    <div class="clip-actions">
+      <button class="btn-primary" id="clip-share" data-i18n="clip.share">Share</button>
+      <button class="mast-btn" id="clip-save" data-i18n="clip.save">Save clipping</button>
+      <button class="mast-btn" id="clip-download" data-i18n="clip.download">Download</button>
+      <button class="mast-btn hidden" id="clip-delete" data-i18n="clip.delete">Delete</button>
+      <button class="mast-btn" id="clip-close" data-i18n="clip.close">Close</button>
+    </div>
   </div>
 </div>
 

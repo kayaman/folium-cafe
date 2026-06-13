@@ -87,6 +87,29 @@ export async function handler(event) {
       }
     }
 
+    // --- clippings: /api/books/{id}/clips[/{clipId}] ---
+    const cm = path.match(/^\/api\/books\/([^/]+)\/clips(?:\/([^/]+))?$/);
+    if (cm) {
+      const bookId = decodeURIComponent(cm[1]);
+      const clipId = cm[2] ? decodeURIComponent(cm[2]) : null;
+
+      if (method === 'GET' && !clipId) {
+        return json(200, { clips: await repo.listClippings(bookId) });
+      }
+      if (method === 'POST' && !clipId) {
+        if (!body.id || typeof body.page !== 'number' ||
+            !Array.isArray(body.rects) || body.rects.length === 0) {
+          return json(400, { error: 'invalid clip' });
+        }
+        await repo.putClipping(bookId, body);
+        return json(200, { ok: true });
+      }
+      if (method === 'DELETE' && clipId) {
+        await repo.deleteClipping(bookId, clipId);
+        return json(200, { ok: true });
+      }
+    }
+
     return json(404, { error: 'no route' });
   } catch (err) {
     console.error('handler error', err);
