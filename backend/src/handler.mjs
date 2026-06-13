@@ -51,9 +51,14 @@ export function makeHandler({ repo, cognito, verifyAccess, allow }) {
     const path = (event.rawPath ?? '/').replace(/\/+$/, '') || '/';
     const ip = event.requestContext?.http?.sourceIp ?? 'unknown';
     const jar = parseCookies(event.cookies);
-    const body = event.body
-      ? JSON.parse(event.isBase64Encoded ? Buffer.from(event.body, 'base64').toString() : event.body)
-      : {};
+    let body = {};
+    if (event.body) {
+      try {
+        body = JSON.parse(event.isBase64Encoded ? Buffer.from(event.body, 'base64').toString() : event.body);
+      } catch {
+        return json(400, { error: 'invalid json' });
+      }
+    }
 
     // CSRF: cross-site fetch cannot send custom headers without a CORS
     // preflight, which this API never grants. Required on every mutation.
