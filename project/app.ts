@@ -561,19 +561,11 @@ class ApiAuthError extends Error {}
 class ApiNetworkError extends Error {}
 
 async function api(path: string, opts: RequestInit = {}): Promise<Response> {
-<<<<<<< HEAD
-  const res = await fetch('/api' + path, {
-    credentials: 'same-origin',
-    headers: { 'content-type': 'application/json', 'x-csrf': '1', ...(opts.headers || {}) },
-    ...opts,
-  });
-  if (res.status === 401) { onUnauthorized(); throw new Error('unauthorized'); }
-=======
   let res: Response;
   try {
     res = await fetch('/api' + path, {
       credentials: 'same-origin',
-      headers: { 'content-type': 'application/json', ...(opts.headers || {}) },
+      headers: { 'content-type': 'application/json', 'x-csrf': '1', ...(opts.headers || {}) },
       ...opts,
     });
   } catch (e) {
@@ -582,7 +574,6 @@ async function api(path: string, opts: RequestInit = {}): Promise<Response> {
   }
   setOffline(false);
   if (res.status === 401) { onUnauthorized(); throw new ApiAuthError('unauthorized'); }
->>>>>>> origin/main
   return res;
 }
 
@@ -721,7 +712,6 @@ async function dbPut(b: Book): Promise<void> {
   const res = await api('/books', { method: 'POST', body: JSON.stringify(meta) });
   if (res.status === 403) { const { error } = await res.json(); toast(error || 'Shelf is full'); throw new Error('quota'); }
   if (!res.ok) throw new Error('save failed');
-<<<<<<< HEAD
   const { upload } = await res.json();
   if (b.data && upload) {
     const form = new FormData();
@@ -729,16 +719,6 @@ async function dbPut(b: Book): Promise<void> {
     form.append('file', new Blob([b.data], { type: 'application/pdf' }));
     const post = await fetch(upload.url, { method: 'POST', body: form });
     if (!post.ok) throw new Error('upload failed');
-=======
-  const { uploadUrl, contentType } = await res.json();
-  if (b.data && uploadUrl) {
-    const put = await fetch(uploadUrl, {
-      method: 'PUT',
-      headers: { 'content-type': contentType || mimeFor(b.format ?? 'pdf', b.fileName) },
-      body: b.data,
-    });
-    if (!put.ok) throw new Error('upload failed');
->>>>>>> origin/main
   }
 }
 
@@ -3095,7 +3075,6 @@ function wireAuth(): void {
 
   el<HTMLFormElement>('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-<<<<<<< HEAD
     try { await finishLogin(fieldValue('login-user'), (el('login-pass') as HTMLInputElement).value); }
     catch { toast('Could not reach the server'); }
   });
@@ -3132,25 +3111,6 @@ function wireAuth(): void {
   el('cf-resend').addEventListener('click', async () => {
     if (!pending) return;
     try { await post('/resend', { username: pending.username }); toast('Code re-sent'); } catch {}
-=======
-    const name = (el('login-name') as HTMLInputElement).value.trim() || t('common.reader');
-    const pass = (el('login-pass') as HTMLInputElement).value;
-    if (!pass) return;
-    try {
-      const res = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ password: pass }),
-      });
-      if (!res.ok) { toast(t('toast.wrongPass')); return; }
-      localStorage.setItem(LS.user, JSON.stringify({ name }));
-      showApp(name);
-      await boot();
-    } catch {
-      toast(t('toast.noServer'));
-    }
->>>>>>> origin/main
   });
 
   el('avatar').addEventListener('click', (e) => {
@@ -3160,11 +3120,7 @@ function wireAuth(): void {
   document.addEventListener('click', () => el('dropdown').classList.add('hidden'));
   el('dropdown').addEventListener('click', (e) => e.stopPropagation());
   el('btn-logout').addEventListener('click', async () => {
-<<<<<<< HEAD
     try { await post('/logout', {}); } catch {}
-=======
-    try { await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' }); } catch {}
-    localStorage.removeItem(LS.user);
     // Logout means "this device is no longer mine": drop everything local.
     localStorage.removeItem(LS.pdfLru);
     localStorage.removeItem(LS.progressQueue);
@@ -3174,7 +3130,6 @@ function wireAuth(): void {
       await Promise.all([caches.delete(PDF_CACHE), caches.delete(DATA_CACHE), caches.delete(SHARED_CACHE)]);
     } catch {}
     offlineIds = new Set();
->>>>>>> origin/main
     el('app').classList.add('hidden');
     el('login').classList.remove('hidden');
     el('dropdown').classList.add('hidden');
@@ -3364,7 +3319,7 @@ function init(): void {
   wireLibrary();
   wireUpload();
   wireReader();
-<<<<<<< HEAD
+  wirePwa();
   // restore session from the HttpOnly cookie (the server refreshes if stale)
   (async () => {
     try {
@@ -3374,16 +3329,6 @@ function init(): void {
         showApp(me.username);
         boot();
       }
-=======
-  wirePwa();
-  // restore session
-  const saved = localStorage.getItem(LS.user);
-  if (saved) {
-    try {
-      const u = JSON.parse(saved);
-      showApp(u.name || t('common.reader'));
-      boot();
->>>>>>> origin/main
     } catch { /* show login */ }
   })();
 }
