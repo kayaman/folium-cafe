@@ -2,7 +2,7 @@ import { getConfig } from './config.mjs';
 import { signSession, verifySession, parseCookies, timingSafeEqualStr } from './auth.mjs';
 import * as repo from './repo.mjs';
 
-const COOKIE = 'folio_session';
+const COOKIE = 'folium_session';
 const TTL = 60 * 60 * 24 * 30; // 30 days
 
 const json = (statusCode, body, extra = {}) => ({

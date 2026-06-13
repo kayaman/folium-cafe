@@ -2,10 +2,20 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Folium — a private reading room</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Folium Café</title>
+<meta name="description" content="Folium Café — a private reading room for your PDFs, so you remember the page you were on.">
+<meta name="theme-color" content="#5e261d">
+<meta name="color-scheme" content="only light">
+<link rel="manifest" href="manifest.webmanifest">
 <link rel="stylesheet" href="styles.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Folium">
+<script src="vendor/pdf.min.js"></script>
 </head>
 <body>
 
@@ -13,9 +23,9 @@
 <section id="login">
   <div class="vignette"></div>
   <form class="login-card" id="login-form" autocomplete="off">
-    <div class="crest">F</div>
-    <h1>FOLIUM</h1>
-    <p class="tag">a private reading room</p>
+    <div class="crest"><svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M45 13C52 24 46 42 26 49C17 39 24 21 45 13Z"/><path d="M26 49C33 39 39 28 45 13"/><path d="M26 49L21 55"/><path d="M34 38C37 37 40 35 42 32" stroke-width="1.8"/><path d="M32 31C35 30 38 28 40 25" stroke-width="1.8"/><path d="M31 43C33 43 36 42 38 40" stroke-width="1.8"/></svg></div>
+    <h1>FOLIUM CAFÉ</h1>
+    <p class="tag">so you remember the page you were on</p>
     <div class="field">
       <label for="login-name">Reader</label>
       <input id="login-name" type="text" placeholder="Your name" required>
@@ -24,8 +34,8 @@
       <label for="login-pass">Passphrase</label>
       <input id="login-pass" type="password" placeholder="••••••••" required>
     </div>
-    <button class="btn-primary" type="submit">Enter the reading room</button>
-    <p class="login-note">Your library is kept privately on this device.</p>
+    <button class="btn-primary" type="submit">Enter the café</button>
+    <p class="login-note">Your library is kept on a private shelf — sign in from any device to pick up where you left off.</p>
   </form>
 </section>
 
@@ -35,9 +45,10 @@
     <div class="masthead-inner">
       <div class="brand" id="brand" title="Library">
         <span class="mark">FOLIUM</span>
-        <span class="sub">reading room</span>
+        <span class="sub">café</span>
       </div>
       <div class="spacer"></div>
+      <span id="offline-badge" class="offline-badge" aria-live="polite">Offline</span>
       <nav class="viewswitch" id="viewswitch" aria-label="Library view">
         <button data-view="shelf" title="Bookshelf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5M9 19V5M14 19V6l5 1-1 12"/><path d="M3 19h18"/></svg><span>Shelf</span></button>
         <button data-view="grid" title="Cover grid"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="9"/><rect x="3" y="15" width="7" height="6"/><rect x="14" y="15" width="7" height="6"/></svg><span>Covers</span></button>
@@ -48,7 +59,8 @@
       <div class="usermenu">
         <div class="avatar" id="avatar"><span id="avatar-initial">R</span></div>
         <div class="dropdown hidden" id="dropdown">
-          <div class="who"><div class="n" id="user-name">Reader</div><div class="e" id="user-email">on this device</div></div>
+          <div class="who"><div class="n" id="user-name">Reader</div><div class="e" id="user-email">at the café</div></div>
+          <button id="btn-install" class="hidden"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg>Install Folium Café</button>
           <button id="btn-logout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>Sign out</button>
         </div>
       </div>

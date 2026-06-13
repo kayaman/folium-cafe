@@ -33,12 +33,12 @@ test('verifySession rejects garbage', () => {
 });
 
 test('parseCookies reads a named cookie from a Cookie header string', () => {
-  const jar = parseCookies(['a=1; folio_session=abc.def; b=2']);
-  assert.equal(jar.folio_session, 'abc.def');
+  const jar = parseCookies(['a=1; folium_session=abc.def; b=2']);
+  assert.equal(jar.folium_session, 'abc.def');
   assert.equal(jar.a, '1');
 });
 
 test('parseCookies handles the Function URL cookies array', () => {
-  const jar = parseCookies(['folio_session=xyz', 'other=1']);
-  assert.equal(jar.folio_session, 'xyz');
+  const jar = parseCookies(['folium_session=xyz', 'other=1']);
+  assert.equal(jar.folium_session, 'xyz');
 });

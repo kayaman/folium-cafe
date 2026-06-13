@@ -10,10 +10,10 @@ variable "hosted_zone_name" {
 
 variable "github_repo" {
   type    = string
-  default = "kayaman/reader"
+  default = "kayaman/folium-cafe"
 }
 
 variable "name_prefix" {
   type    = string
-  default = "folio"
+  default = "folium-cafe"
 }

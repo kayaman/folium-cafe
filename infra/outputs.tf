@@ -17,7 +17,3 @@ output "url" {
 output "ci_role_arn" {
   value = aws_iam_role.ci.arn
 }
-
-output "folium_name_servers" {
-  value = aws_route53_zone.folium.name_servers
-}

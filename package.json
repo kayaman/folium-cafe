@@ -1,14 +1,18 @@
 {
-  "name": "folium",
+  "name": "folium-cafe",
   "version": "1.0.0",
-  "description": "Folium — a private reading room (folium.cafe)",
+  "description": "Folium Café — a private PDF reading room, so you remember the page you were on",
   "scripts": {
-    "build": "esbuild project/app.ts --outfile=project/app.js --target=es2020 --log-level=info",
+    "build": "npm run build:app && npm run build:sw",
+    "build:app": "esbuild project/app.ts --outfile=project/app.js --target=es2020 --log-level=info",
+    "build:sw": "esbuild project/sw.ts --outfile=project/sw.js --target=es2020 --log-level=info --define:BUILD_ID=\\\"${BUILD_ID:-dev}\\\"",
     "watch": "esbuild project/app.ts --outfile=project/app.js --target=es2020 --watch",
-    "dev": "esbuild project/app.ts --outfile=project/app.js --target=es2020 --watch"
+    "dev": "esbuild project/app.ts --outfile=project/app.js --target=es2020 --watch",
+    "icons": "node scripts/icons.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.21.0",
+    "sharp": "^0.33.0",
     "typescript": "^5.4.0"
   }
 }

@@ -16,3 +16,5 @@ backend/function.zip
 
 # Built frontend (built in CI; keep source app.ts)
 project/app.js
+
+project/sw.js

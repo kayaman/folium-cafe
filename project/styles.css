@@ -1,7 +1,9 @@
 /* ============================================================
-   FOLIUM — a private reading room · folium.cafe
-   Literary library theme: warm paper, slab serifs, leather & wood
+   FOLIUM CAFÉ — so you remember the page you were on
+   Literary café theme: warm paper, slab serifs, leather & wood
    ============================================================ */
+
+:root{color-scheme:only light}
 
 @import url('https://fonts.googleapis.com/css2?family=Zilla+Slab:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Spectral:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap');
 
@@ -363,3 +365,21 @@ button{font-family:inherit;cursor:pointer}
   .rbar .seg,.continue .ca{}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none !important;animation-duration:.01ms !important}}
+/* ============================================================
+   PWA / EDGE-TO-EDGE (Android viewport-fit=cover)
+   ============================================================ */
+.crest svg{width:32px;height:32px}
+.masthead{padding-top:env(safe-area-inset-top)}
+body{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
+.rbar{padding-top:env(safe-area-inset-top);height:calc(56px + env(safe-area-inset-top))}
+.rstage{padding-bottom:env(safe-area-inset-bottom)}
+#toast{bottom:calc(26px + env(safe-area-inset-bottom))}
+
+/* masthead offline indicator */
+.offline-badge{display:none;font-style:italic;font-size:12px;color:var(--brass-hi);
+  border:1px solid rgba(220,176,100,.4);border-radius:3px;padding:3px 8px;white-space:nowrap}
+.offline-badge.show{display:inline-block}
+
+/* "available offline" tick on covers */
+.offdot{position:absolute;left:6px;top:6px;width:8px;height:8px;border-radius:50%;
+  background:var(--brass-hi);box-shadow:0 0 0 2px rgba(42,32,24,.35);z-index:2}
