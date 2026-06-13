@@ -68,7 +68,7 @@ type BookMeta = Omit<Book, 'data'>;
 async function api(path: string, opts: RequestInit = {}): Promise<Response> {
   const res = await fetch('/api' + path, {
     credentials: 'same-origin',
-    headers: { 'content-type': 'application/json', ...(opts.headers || {}) },
+    headers: { 'content-type': 'application/json', 'x-csrf': '1', ...(opts.headers || {}) },
     ...opts,
   });
   if (res.status === 401) { onUnauthorized(); throw new Error('unauthorized'); }
@@ -90,15 +90,15 @@ async function dbAll(): Promise<BookMeta[]> {
 async function dbPut(b: Book): Promise<void> {
   const meta: BookMeta = stripData(b);
   const res = await api('/books', { method: 'POST', body: JSON.stringify(meta) });
+  if (res.status === 403) { const { error } = await res.json(); toast(error || 'Shelf is full'); throw new Error('quota'); }
   if (!res.ok) throw new Error('save failed');
-  const { uploadUrl } = await res.json();
-  if (b.data && uploadUrl) {
-    const put = await fetch(uploadUrl, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/pdf' },
-      body: b.data,
-    });
-    if (!put.ok) throw new Error('upload failed');
+  const { upload } = await res.json();
+  if (b.data && upload) {
+    const form = new FormData();
+    for (const [k, v] of Object.entries(upload.fields as Record<string, string>)) form.append(k, v);
+    form.append('file', new Blob([b.data], { type: 'application/pdf' }));
+    const post = await fetch(upload.url, { method: 'POST', body: form });
+    if (!post.ok) throw new Error('upload failed');
   }
 }
 
@@ -131,7 +131,6 @@ function stripData(b: Book): BookMeta {
 
 // ---------- state ----------
 const LS = {
-  user: 'folium.user',
   view: 'folium.view',
   width: 'folium.readerWidth',
 };
@@ -635,26 +634,80 @@ function showApp(name: string): void {
   el('avatar-initial').textContent = initial;
   el('user-name').textContent = name.trim() || 'Reader';
 }
+
+function fieldValue(id: string): string {
+  return (el(id) as HTMLInputElement).value.trim();
+}
+
 function wireAuth(): void {
+  const showForm = (which: 'login' | 'signup' | 'confirm') => {
+    el('login-form').classList.toggle('hidden', which !== 'login');
+    el('signup-form').classList.toggle('hidden', which !== 'signup');
+    el('confirm-form').classList.toggle('hidden', which !== 'confirm');
+    el('tab-signin').classList.toggle('active', which === 'login');
+    el('tab-join').classList.toggle('active', which !== 'login');
+  };
+  el('tab-signin').addEventListener('click', () => showForm('login'));
+  el('tab-join').addEventListener('click', () => showForm('signup'));
+
+  // Held between signup and confirm so we can auto-login after the OTP.
+  let pending: { username: string; password: string } | null = null;
+
+  const post = (path: string, body: unknown) =>
+    fetch('/api' + path, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', 'x-csrf': '1' },
+      body: JSON.stringify(body),
+    });
+
+  async function finishLogin(username: string, password: string): Promise<void> {
+    const res = await post('/login', { username, password });
+    if (res.status === 403) { toast('Confirm your email first'); return; }
+    if (!res.ok) { toast('Wrong username or passphrase'); return; }
+    const me = await (await api('/me')).json();
+    showApp(me.username);
+    await boot();
+  }
+
   el<HTMLFormElement>('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const name = (el('login-name') as HTMLInputElement).value.trim() || 'Reader';
-    const pass = (el('login-pass') as HTMLInputElement).value;
-    if (!pass) return;
+    try { await finishLogin(fieldValue('login-user'), (el('login-pass') as HTMLInputElement).value); }
+    catch { toast('Could not reach the server'); }
+  });
+
+  el<HTMLFormElement>('signup-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = fieldValue('su-user').toLowerCase();
+    const password = (el('su-pass') as HTMLInputElement).value;
+    const email = fieldValue('su-email');
     try {
-      const res = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ password: pass }),
-      });
-      if (!res.ok) { toast('Wrong password'); return; }
-      localStorage.setItem(LS.user, JSON.stringify({ name }));
-      showApp(name);
-      await boot();
-    } catch {
-      toast('Could not reach the server');
-    }
+      const res = await post('/signup', { username, email, password });
+      if (!res.ok) {
+        const { error } = await res.json().catch(() => ({ error: 'Signup failed' }));
+        toast(error || 'Signup failed');
+        return;
+      }
+      pending = { username, password };
+      el('confirm-email').textContent = email;
+      showForm('confirm');
+    } catch { toast('Could not reach the server'); }
+  });
+
+  el<HTMLFormElement>('confirm-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!pending) { showForm('login'); return; }
+    try {
+      const res = await post('/confirm', { username: pending.username, code: fieldValue('cf-code') });
+      if (!res.ok) { toast('That code did not match'); return; }
+      await finishLogin(pending.username, pending.password);
+      pending = null;
+    } catch { toast('Could not reach the server'); }
+  });
+
+  el('cf-resend').addEventListener('click', async () => {
+    if (!pending) return;
+    try { await post('/resend', { username: pending.username }); toast('Code re-sent'); } catch {}
   });
 
   el('avatar').addEventListener('click', (e) => {
@@ -664,8 +717,7 @@ function wireAuth(): void {
   document.addEventListener('click', () => el('dropdown').classList.add('hidden'));
   el('dropdown').addEventListener('click', (e) => e.stopPropagation());
   el('btn-logout').addEventListener('click', async () => {
-    try { await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' }); } catch {}
-    localStorage.removeItem(LS.user);
+    try { await post('/logout', {}); } catch {}
     el('app').classList.add('hidden');
     el('login').classList.remove('hidden');
     el('dropdown').classList.add('hidden');
@@ -718,7 +770,6 @@ async function boot(): Promise<void> {
 function init(): void {
   wireAuth();
   _onUnauthorized = () => {
-    localStorage.removeItem(LS.user);
     el('app').classList.add('hidden');
     el('login').classList.remove('hidden');
     booted = false;
@@ -727,15 +778,17 @@ function init(): void {
   wireLibrary();
   wireUpload();
   wireReader();
-  // restore session
-  const saved = localStorage.getItem(LS.user);
-  if (saved) {
+  // restore session from the HttpOnly cookie (the server refreshes if stale)
+  (async () => {
     try {
-      const u = JSON.parse(saved);
-      showApp(u.name || 'Reader');
-      boot();
+      const res = await fetch('/api/me', { credentials: 'same-origin' });
+      if (res.ok) {
+        const me = await res.json();
+        showApp(me.username);
+        boot();
+      }
     } catch { /* show login */ }
-  }
+  })();
 }
 
 init();
