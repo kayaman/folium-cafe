@@ -139,6 +139,7 @@ const EN = {
   'pwa.installed': 'Folium Café is on your home screen',
   'clip.snapshot': 'Snapshot and share',
   'clip.captureHint': 'Drag a box over the page — Esc to cancel',
+  'clip.highlight': 'Highlight',
   'clip.sheetTitle': 'Share a clipping',
   'clip.color': 'Highlight colour',
   'clip.save': 'Save clipping',
@@ -231,6 +232,7 @@ const PT: Record<MsgKey, string> = {
   'pwa.installed': 'O Folium Café está na sua tela inicial',
   'clip.snapshot': 'Recortar e compartilhar',
   'clip.captureHint': 'Arraste uma caixa sobre a página — Esc para cancelar',
+  'clip.highlight': 'Destacar',
   'clip.sheetTitle': 'Compartilhar um recorte',
   'clip.color': 'Cor do destaque',
   'clip.save': 'Salvar recorte',
@@ -322,6 +324,7 @@ const ES: Record<MsgKey, string> = {
   'pwa.installed': 'Folium Café está en tu pantalla de inicio',
   'clip.snapshot': 'Recortar y compartir',
   'clip.captureHint': 'Arrastra un recuadro sobre la página — Esc para cancelar',
+  'clip.highlight': 'Resaltar',
   'clip.sheetTitle': 'Compartir un recorte',
   'clip.color': 'Color de resaltado',
   'clip.save': 'Guardar recorte',
@@ -947,6 +950,9 @@ const reader = {
   wheelLock: 0,
   clips: [] as Clip[],
   capturing: false,
+  cssW: 0,
+  cssH: 0,
+  cssScale: 1,
 };
 
 async function openBook(id: string): Promise<void> {
@@ -1030,12 +1036,44 @@ async function renderPage(n: number, keepScroll: boolean): Promise<void> {
   wrap.appendChild(canvas);
   const cssW = targetCSS;
   const cssH = Math.round(targetCSS * (v1.height / v1.width));
+  reader.cssW = cssW; reader.cssH = cssH; reader.cssScale = cssScale;
   renderClipOverlay(wrap, cssW, cssH);
   col.appendChild(wrap);
+  clearSelToolbar();
+  renderTextLayerFor(page, wrap, cssScale, token);
 
   if (!keepScroll) el('r-stage').scrollTop = 0;
   updateReaderChrome();
   persistPage();
+}
+
+// Renders a selectable PDF.js text layer over the page canvas (text PDFs only;
+// scanned PDFs yield no text, so the layer stays empty). The vendored 3.11
+// build sizes glyph spans with calc(var(--scale-factor) * Npx), so that CSS
+// variable must be set to the viewport scale or the text misaligns.
+async function renderTextLayerFor(page: any, wrap: HTMLElement, cssScale: number, token: number): Promise<void> {
+  try {
+    const textContent = await page.getTextContent();
+    if (token !== reader.renderToken || !textContent.items.length) return;
+    const vp = page.getViewport({ scale: cssScale });
+    const layer = document.createElement('div');
+    layer.className = 'textLayer';
+    // Match the canvas CSS box exactly (canvas height uses Math.round); a floor
+    // here would clip the bottom text row out of the overflow:clip container.
+    layer.style.width = Math.round(vp.width) + 'px';
+    layer.style.height = Math.round(vp.height) + 'px';
+    layer.style.setProperty('--scale-factor', String(cssScale));
+    wrap.insertBefore(layer, wrap.querySelector('.rclips'));
+    await (pdfjs as any).renderTextLayer({ textContentSource: textContent, container: layer, viewport: vp }).promise;
+  } catch { /* text layer is best-effort */ }
+}
+
+// Rebuilds only the clip overlay (after a save/delete) — no page or text re-render.
+function refreshClipOverlay(): void {
+  const wrap = el('r-col').querySelector('.rpage') as HTMLElement | null;
+  if (!wrap) return;
+  wrap.querySelector('.rclips')?.remove();
+  renderClipOverlay(wrap, reader.cssW, reader.cssH);
 }
 
 // Draws saved clips for the current page as overlay boxes over the page canvas.
@@ -1163,6 +1201,7 @@ function exitCapture(): void {
 }
 function toggleCapture(): void {
   if (!reader.doc) return;
+  clearSelToolbar();
   reader.capturing = !reader.capturing;
   el('reader').classList.toggle('capturing', reader.capturing);
   el('r-snap').classList.toggle('active', reader.capturing);
@@ -1228,6 +1267,112 @@ async function composeRegionCard(src: HTMLCanvasElement, rect: Rect, title: stri
   return await new Promise<Blob>((resolve) => cv.toBlob((b) => resolve(b!), 'image/png'));
 }
 
+function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
+  const words = text.replace(/\s+/g, ' ').trim().split(' ');
+  const lines: string[] = [];
+  let cur = '';
+  for (const w of words) {
+    const test = cur ? cur + ' ' + w : w;
+    if (cur && ctx.measureText(test).width > maxW) { lines.push(cur); cur = w; }
+    else cur = test;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+// Compose a typography quote card: the selected passage re-set in the book's
+// serif on warm paper, attributed to the title/author. No pixel crop.
+async function composeTextCard(text: string, book: Book): Promise<Blob> {
+  const W = 1080, H = 1350, pad = 110;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d')!;
+  ctx.fillStyle = '#efe6d2'; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(178,133,58,.55)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(pad, pad); ctx.lineTo(W - pad, pad); ctx.stroke();
+
+  try { await (document as any).fonts.ready; } catch { /* system serif */ }
+
+  ctx.textAlign = 'left';
+  ctx.fillStyle = 'rgba(94,38,29,.16)';
+  ctx.font = '700 190px Georgia, "Times New Roman", serif';
+  ctx.fillText('“', pad - 12, pad + 150);
+
+  const maxW = W - 2 * pad;
+  const bodyTop = pad + 70, bodyBottom = H - pad - 170, maxH = bodyBottom - bodyTop;
+  ctx.textAlign = 'center';
+  let size = 60, lines: string[] = [];
+  while (size >= 26) {
+    ctx.font = '500 ' + size + 'px "Spectral", Georgia, serif';
+    lines = wrapLines(ctx, text, maxW);
+    if (lines.length * size * 1.34 <= maxH) break;
+    size -= 3;
+  }
+  const lh = size * 1.34;
+  ctx.fillStyle = '#2a2018';
+  ctx.font = '500 ' + size + 'px "Spectral", Georgia, serif';
+  let y = bodyTop + Math.max(0, (maxH - lines.length * lh) / 2) + size;
+  for (const ln of lines) { ctx.fillText(ln, W / 2, y); y += lh; }
+
+  ctx.fillStyle = '#5e261d';
+  ctx.font = '700 36px "Zilla Slab", Georgia, serif';
+  ctx.fillText(fitText(ctx, '— ' + book.title, maxW), W / 2, H - pad - 78);
+  if (book.author) {
+    ctx.fillStyle = '#897a5f';
+    ctx.font = 'italic 27px "Spectral", Georgia, serif';
+    ctx.fillText(fitText(ctx, book.author, maxW), W / 2, H - pad - 40);
+  }
+  ctx.fillStyle = '#897a5f';
+  ctx.font = 'italic 24px "Spectral", Georgia, serif';
+  ctx.fillText('❦  folium.cafe', W / 2, H - pad + 2);
+
+  return await new Promise<Blob>((resolve) => cv.toBlob((b) => resolve(b!), 'image/png'));
+}
+
+// ---------- text selection toolbar ----------
+let pendingSel: { rects: Rect[]; text: string; page: number } | null = null;
+
+function clearSelToolbar(): void {
+  pendingSel = null;
+  const tb = document.getElementById('sel-toolbar');
+  if (tb) tb.classList.remove('show');
+}
+
+function positionSelToolbar(first: DOMRect): void {
+  const tb = el('sel-toolbar');
+  tb.classList.add('show');
+  const tbw = tb.offsetWidth || 168, tbh = tb.offsetHeight || 42;
+  let left = first.left + first.width / 2 - tbw / 2;
+  left = Math.max(8, Math.min(left, window.innerWidth - tbw - 8));
+  const above = first.top - tbh - 10;
+  tb.style.left = left + 'px';
+  tb.style.top = (above < 8 ? first.bottom + 10 : above) + 'px';
+}
+
+function onTextSelection(): void {
+  if (reader.capturing) { clearSelToolbar(); return; }
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || !sel.rangeCount) { clearSelToolbar(); return; }
+  const text = sel.toString().trim();
+  const col = el('r-col');
+  if (!text || !sel.anchorNode || !col.contains(sel.anchorNode)) { clearSelToolbar(); return; }
+  const canvas = col.querySelector('canvas') as HTMLCanvasElement | null;
+  if (!canvas) { clearSelToolbar(); return; }
+  const cb = canvas.getBoundingClientRect();
+  const range = sel.getRangeAt(0);
+  const client = Array.from(range.getClientRects());
+  const rects: Rect[] = [];
+  for (const r of client) {
+    if (r.width < 1 || r.height < 1) continue;
+    const w = r.width / cb.width, h = r.height / cb.height;
+    if (w <= 0 || h <= 0) continue;
+    rects.push({ x: (r.left - cb.left) / cb.width, y: (r.top - cb.top) / cb.height, w, h });
+  }
+  if (!rects.length) { clearSelToolbar(); return; }
+  pendingSel = { rects, text, page: reader.page };
+  positionSelToolbar(client[0]);
+}
+
 function downloadBlob(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1253,17 +1398,21 @@ async function shareOrDownload(blob: Blob, book: Book): Promise<void> {
 }
 
 // ---------- clip share sheet ----------
-let sheetState: { rect: Rect; clip?: Clip; color: string; blob?: Blob } | null = null;
+let sheetState: { rects: Rect[]; text?: string; clip?: Clip; color: string; blob?: Blob } | null = null;
 
-async function openClipSheet(arg: { clip?: Clip; region?: { rect: Rect } }): Promise<void> {
+async function openClipSheet(arg: { clip?: Clip; region?: { rect: Rect }; text?: { rects: Rect[]; text: string } }): Promise<void> {
   const book = reader.book; if (!book) return;
   const canvas = el('r-col').querySelector('canvas') as HTMLCanvasElement | null;
-  if (!canvas) return;
   const clip = arg.clip;
-  const rect = clip ? clip.rects[0] : arg.region!.rect;
-  if (!rect) return;
-  sheetState = { rect, clip, color: clip?.color || DEFAULT_CLIP_COLOR };
-  const blob = await composeRegionCard(canvas, rect, book.title);
+  let rects: Rect[]; let text: string | undefined;
+  if (clip) { rects = clip.rects; text = clip.text; }
+  else if (arg.text) { rects = arg.text.rects; text = arg.text.text; }
+  else { rects = [arg.region!.rect]; text = undefined; }
+  if (!rects.length) return;
+  sheetState = { rects, text, clip, color: clip?.color || DEFAULT_CLIP_COLOR };
+  let blob: Blob;
+  if (text) blob = await composeTextCard(text, book);
+  else { if (!canvas) return; blob = await composeRegionCard(canvas, rects[0], book.title); }
   sheetState.blob = blob;
   const img = el('clip-preview') as HTMLImageElement;
   if (img.src) URL.revokeObjectURL(img.src);
@@ -1365,24 +1514,59 @@ function wireReader(): void {
   el('clip-download').addEventListener('click', () => { if (sheetState?.blob) downloadBlob(sheetState.blob, 'folium-clip.png'); });
   el('clip-save').addEventListener('click', async () => {
     if (!sheetState || !reader.book) return;
-    const clip: Clip = { id: cid(), page: reader.page, rects: [sheetState.rect], color: sheetState.color, createdAt: Date.now() };
+    const clip: Clip = { id: cid(), page: reader.page, rects: sheetState.rects, color: sheetState.color, createdAt: Date.now() };
+    if (sheetState.text) clip.text = sheetState.text;
     reader.clips.push(clip);
+    const bookId = reader.book.id;
     closeClipSheet();
-    renderPage(reader.page, true);
+    refreshClipOverlay();
     toast(t('clip.saved'));
-    try { await clipPut(reader.book.id, clip); } catch (err) { console.error(err); }
+    try { await clipPut(bookId, clip); } catch (err) { console.error(err); }
   });
   el('clip-delete').addEventListener('click', async () => {
     if (!sheetState?.clip || !reader.book) return;
     const id = sheetState.clip.id, bookId = reader.book.id;
     reader.clips = reader.clips.filter(x => x.id !== id);
     closeClipSheet();
-    renderPage(reader.page, true);
+    refreshClipOverlay();
     toast(t('clip.removed'));
     try { await clipDel(bookId, id); } catch (err) { console.error(err); }
   });
   el('clip-close').addEventListener('click', closeClipSheet);
   el('clip-sheet').addEventListener('click', (e) => { if (e.target === el('clip-sheet')) closeClipSheet(); });
+
+  // --- text selection → floating Highlight / Share toolbar ---
+  let selTimer: any = 0;
+  document.addEventListener('selectionchange', () => {
+    if (!el('reader').classList.contains('show')) return;
+    window.clearTimeout(selTimer);
+    selTimer = window.setTimeout(onTextSelection, 140);
+  });
+  el('r-stage').addEventListener('scroll', () => {
+    if (!pendingSel) return;
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) { clearSelToolbar(); return; }
+    const r = sel.getRangeAt(0).getClientRects()[0];
+    if (r) positionSelToolbar(r);
+  }, { passive: true });
+  el('sel-highlight').addEventListener('click', async () => {
+    if (!pendingSel || !reader.book) return;
+    const clip: Clip = { id: cid(), page: pendingSel.page, rects: pendingSel.rects, color: DEFAULT_CLIP_COLOR, text: pendingSel.text, createdAt: Date.now() };
+    const bookId = reader.book.id;
+    reader.clips.push(clip);
+    window.getSelection()?.removeAllRanges();
+    clearSelToolbar();
+    refreshClipOverlay();
+    toast(t('clip.saved'));
+    try { await clipPut(bookId, clip); } catch (err) { console.error(err); }
+  });
+  el('sel-share').addEventListener('click', () => {
+    if (!pendingSel) return;
+    const payload = { rects: pendingSel.rects, text: pendingSel.text };
+    window.getSelection()?.removeAllRanges();
+    clearSelToolbar();
+    openClipSheet({ text: payload });
+  });
 
   el('r-zoom-in').addEventListener('click', () => { reader.zoom = Math.min(reader.zoom + 0.15, 2.2); renderPage(reader.page, true); });
   el('r-zoom-out').addEventListener('click', () => { reader.zoom = Math.max(reader.zoom - 0.15, 0.6); renderPage(reader.page, true); });
