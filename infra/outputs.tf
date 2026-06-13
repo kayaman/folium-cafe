@@ -17,6 +17,7 @@ output "url" {
 output "ci_role_arn" {
   value = aws_iam_role.ci.arn
 }
+<<<<<<< HEAD
 
 output "folium_name_servers" {
   value = aws_route53_zone.folium.name_servers
@@ -29,3 +30,5 @@ output "user_pool_id" {
 output "user_pool_client_id" {
   value = aws_cognito_user_pool_client.bff.id
 }
+=======
+>>>>>>> origin/main

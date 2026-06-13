@@ -1,6 +1,7 @@
 resource "aws_acm_certificate" "site" {
-  domain_name       = var.domain_name
-  validation_method = "DNS"
+  domain_name               = var.domain_name
+  subject_alternative_names = ["www.${var.domain_name}"]
+  validation_method         = "DNS"
 
   lifecycle {
     create_before_destroy = true
@@ -42,6 +43,28 @@ resource "aws_route53_record" "alias_a" {
 resource "aws_route53_record" "alias_aaaa" {
   zone_id = data.aws_route53_zone.primary.zone_id
   name    = var.domain_name
+  type    = "AAAA"
+  alias {
+    name                   = aws_cloudfront_distribution.site.domain_name
+    zone_id                = aws_cloudfront_distribution.site.hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+
+resource "aws_route53_record" "alias_www_a" {
+  zone_id = data.aws_route53_zone.primary.zone_id
+  name    = "www.${var.domain_name}"
+  type    = "A"
+  alias {
+    name                   = aws_cloudfront_distribution.site.domain_name
+    zone_id                = aws_cloudfront_distribution.site.hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+
+resource "aws_route53_record" "alias_www_aaaa" {
+  zone_id = data.aws_route53_zone.primary.zone_id
+  name    = "www.${var.domain_name}"
   type    = "AAAA"
   alias {
     name                   = aws_cloudfront_distribution.site.domain_name

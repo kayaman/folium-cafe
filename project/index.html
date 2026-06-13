@@ -2,16 +2,28 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Folium — a private reading room</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Folium Café</title>
+<meta name="description" content="Folium Café — a private reading room for your PDFs, so you remember the page you were on.">
+<meta name="theme-color" content="#5e261d">
+<meta name="color-scheme" content="only light">
+<link rel="manifest" href="manifest.webmanifest">
 <link rel="stylesheet" href="styles.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Folium">
+<script src="vendor/pdf.min.js"></script>
+<script src="vendor/marked.min.js"></script>
 </head>
 <body>
 
 <!-- ============ LOGIN ============ -->
 <section id="login">
   <div class="vignette"></div>
+<<<<<<< HEAD
   <div class="login-card">
     <div class="crest">F</div>
     <h1>FOLIUM</h1>
@@ -60,29 +72,50 @@
     </form>
     <p class="login-note">Your shelf follows you to any device.</p>
   </div>
+=======
+  <form class="login-card" id="login-form" autocomplete="off">
+    <div class="crest"><svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M45 13C52 24 46 42 26 49C17 39 24 21 45 13Z"/><path d="M26 49C33 39 39 28 45 13"/><path d="M26 49L21 55"/><path d="M34 38C37 37 40 35 42 32" stroke-width="1.8"/><path d="M32 31C35 30 38 28 40 25" stroke-width="1.8"/><path d="M31 43C33 43 36 42 38 40" stroke-width="1.8"/></svg></div>
+    <h1>FOLIUM CAFÉ</h1>
+    <p class="tag" data-i18n="login.tagline">so you remember the page you were on</p>
+    <div class="field">
+      <label for="login-name" data-i18n="login.reader">Reader</label>
+      <input id="login-name" type="text" placeholder="Your name" data-i18n-placeholder="login.namePh" required>
+    </div>
+    <div class="field">
+      <label for="login-pass" data-i18n="login.passphrase">Passphrase</label>
+      <input id="login-pass" type="password" placeholder="••••••••" required>
+    </div>
+    <button class="btn-primary" type="submit" data-i18n="login.submit">Enter the café</button>
+    <p class="login-note" data-i18n="login.note">Your library is kept on a private shelf — sign in from any device to pick up where you left off.</p>
+  </form>
+>>>>>>> origin/main
 </section>
 
 <!-- ============ APP ============ -->
 <div id="app" class="hidden">
   <header class="masthead">
     <div class="masthead-inner">
-      <div class="brand" id="brand" title="Library">
+      <div class="brand" id="brand" title="Library" data-i18n-title="mast.libraryTitle">
         <span class="mark">FOLIUM</span>
-        <span class="sub">reading room</span>
+        <span class="sub">café</span>
       </div>
       <div class="spacer"></div>
-      <nav class="viewswitch" id="viewswitch" aria-label="Library view">
-        <button data-view="shelf" title="Bookshelf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5M9 19V5M14 19V6l5 1-1 12"/><path d="M3 19h18"/></svg><span>Shelf</span></button>
-        <button data-view="grid" title="Cover grid"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="9"/><rect x="3" y="15" width="7" height="6"/><rect x="14" y="15" width="7" height="6"/></svg><span>Covers</span></button>
-        <button data-view="list" title="Reading list"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h12M8 12h12M8 18h12M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg><span>List</span></button>
+      <span id="offline-badge" class="offline-badge" aria-live="polite" data-i18n="mast.offline">Offline</span>
+      <nav class="viewswitch" id="viewswitch" aria-label="Library view" data-i18n-aria="mast.viewAria">
+        <button data-view="shelf" title="Bookshelf" data-i18n-title="mast.shelfTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5M9 19V5M14 19V6l5 1-1 12"/><path d="M3 19h18"/></svg><span data-i18n="mast.shelf">Shelf</span></button>
+        <button data-view="grid" title="Cover grid" data-i18n-title="mast.coversTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="9"/><rect x="3" y="15" width="7" height="6"/><rect x="14" y="15" width="7" height="6"/></svg><span data-i18n="mast.covers">Covers</span></button>
+        <button data-view="list" title="Reading list" data-i18n-title="mast.listTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h12M8 12h12M8 18h12M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg><span data-i18n="mast.list">List</span></button>
       </nav>
-      <button class="mast-btn brass" id="btn-upload" title="Add PDFs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span>Add books</span></button>
-      <input type="file" id="file-input" accept="application/pdf,.pdf" multiple class="hidden">
+      <button class="mast-btn brass" id="btn-upload" title="Add PDFs" data-i18n-title="mast.addTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span data-i18n="mast.add">Add books</span></button>
+      <button class="mast-btn" id="btn-newnote" title="Create a note" data-i18n-title="note.newTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg><span data-i18n="note.new">New note</span></button>
+      <input type="file" id="file-input" accept="application/pdf,.pdf,.cbz,.epub,.txt,.md,.markdown,.mp3,.m4a,.m4b,.aac,.ogg,.oga,.opus,.wav,.flac,.mp4,.m4v,.webm,.mov,audio/*,video/*" multiple class="hidden">
       <div class="usermenu">
         <div class="avatar" id="avatar"><span id="avatar-initial">R</span></div>
         <div class="dropdown hidden" id="dropdown">
-          <div class="who"><div class="n" id="user-name">Reader</div><div class="e" id="user-email">on this device</div></div>
-          <button id="btn-logout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>Sign out</button>
+          <div class="who"><div class="n" id="user-name">Reader</div><div class="e" id="user-email" data-i18n="menu.atCafe">at the café</div></div>
+          <button id="btn-settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01A1.7 1.7 0 0 0 10 4.09V4a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01A1.7 1.7 0 0 0 20.91 11H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z"/></svg><span data-i18n="menu.settings">Settings</span></button>
+          <button id="btn-install" class="hidden"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg><span data-i18n="menu.install">Install Folium Café</span></button>
+          <button id="btn-logout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg><span data-i18n="menu.signOut">Sign out</span></button>
         </div>
       </div>
     </div>
@@ -91,7 +124,7 @@
   <main id="library">
     <div class="lib-wrap">
       <div class="lib-head">
-        <h2 id="lib-title">Your Library</h2>
+        <h2 id="lib-title" data-i18n="lib.title">Your Library</h2>
         <span class="count" id="lib-count"></span>
       </div>
       <div class="lib-sub rule-orn"><span class="dot">❦</span></div>
@@ -100,14 +133,14 @@
         <div class="ribbon"></div>
         <div class="cv" id="cont-cover"></div>
         <div class="meta">
-          <div class="kicker smallcaps">Continue reading</div>
+          <div class="kicker smallcaps" data-i18n="lib.continue">Continue reading</div>
           <div class="ct" id="cont-title"></div>
           <div class="ca" id="cont-author"></div>
           <div class="progline">
             <div class="progress"><i id="cont-bar"></i></div>
             <span class="progress-num" id="cont-num"></span>
           </div>
-          <span class="resume"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-14 9V3z"/></svg>Resume</span>
+          <span class="resume"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-14 9V3z"/></svg><span data-i18n="lib.resume">Resume</span></span>
         </div>
       </a>
 
@@ -119,37 +152,98 @@
 <!-- ============ READER ============ -->
 <section id="reader">
   <div class="rbar" id="rbar">
-    <button class="ico" id="r-back" title="Back to library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>
+    <button class="ico" id="r-back" title="Back to library" data-i18n-title="rdr.back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>
     <div class="rtitle"><div class="t" id="r-title-t">—</div><div class="a" id="r-title-a"></div></div>
     <div class="rspacer"></div>
     <div class="pager">
-      <button class="ico" id="r-prev-s" title="Previous page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <button class="ico" id="r-prev-s" title="Previous page" data-i18n-title="rdr.prevPage"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
       <input class="pageinput" id="r-page-input" inputmode="numeric" value="1">
       <span class="pgtotal" id="r-total">/ 1</span>
-      <button class="ico" id="r-next-s" title="Next page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>
+      <button class="ico" id="r-next-s" title="Next page" data-i18n-title="rdr.nextPage"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>
     </div>
-    <div class="seg" id="width-seg" title="Page width">
-      <button data-w="comfort" class="active">Comfort</button>
-      <button data-w="full">Full</button>
+    <div class="seg" id="width-seg" title="Page width" data-i18n-title="rdr.widthTitle">
+      <button data-w="comfort" class="active" data-i18n="rdr.comfort">Comfort</button>
+      <button data-w="full" data-i18n="rdr.full">Full</button>
     </div>
     <div class="seg zoom">
-      <button id="r-zoom-out" title="Zoom out">–</button>
-      <button id="r-zoom-in" title="Zoom in">+</button>
+      <button id="r-zoom-out" title="Zoom out" data-i18n-title="rdr.zoomOut">–</button>
+      <button id="r-zoom-in" title="Zoom in" data-i18n-title="rdr.zoomIn">+</button>
     </div>
-    <button class="ico" id="r-focus" title="Distraction-free (F)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M16 21h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
+    <button class="ico" id="r-snap" title="Snapshot and share" data-i18n-title="clip.snapshot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg></button>
+    <button class="ico" id="r-focus" title="Distraction-free (F)" data-i18n-title="rdr.focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M16 21h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
   </div>
   <div class="rstage" id="r-stage">
     <div class="rcanvas-wrap"><div class="rcanvas-col" id="r-col"></div></div>
     <div class="rloading hidden" id="r-loading"><div class="spinner"></div></div>
   </div>
-  <button class="rnav prev" id="r-prev" title="Previous"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
-  <button class="rnav next" id="r-next" title="Next"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>
+  <button class="rnav prev" id="r-prev" title="Previous" data-i18n-title="rdr.prev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
+  <button class="rnav next" id="r-next" title="Next" data-i18n-title="rdr.next"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>
   <div class="rprogress"><i id="r-progress-bar"></i></div>
-  <div class="zen-hint" id="zen-hint">Move the cursor up to show controls · Esc to exit</div>
+  <div class="zen-hint" id="zen-hint" data-i18n="rdr.zenHint">Move the cursor up to show controls · Esc to exit</div>
+  <div id="r-capsel"></div>
+</section>
+
+<!-- ============ NOTE EDITOR ============ -->
+<section id="note-editor">
+  <div class="nbar" id="nbar">
+    <button class="ico" id="note-back" title="Back to library" data-i18n-title="rdr.back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>
+    <input class="note-title" id="note-title" type="text" placeholder="Untitled note" data-i18n-placeholder="note.untitled">
+    <div class="nspacer"></div>
+    <div class="seg" id="note-format" title="Format" data-i18n-title="note.format">
+      <button data-nf="text" data-i18n="note.plain">Plain text</button>
+      <button data-nf="markdown" class="active" data-i18n="note.markdown">Markdown</button>
+    </div>
+    <button class="ico" id="note-preview-toggle" title="Preview" data-i18n-title="note.preview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg></button>
+    <span id="note-saved" class="note-saved" aria-live="polite"></span>
+    <button class="ico" id="note-delete" title="Delete note" data-i18n-title="note.delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V6"/></svg></button>
+  </div>
+  <div class="nstage" id="note-stage">
+    <textarea class="note-body" id="note-body" spellcheck="true"></textarea>
+    <div class="note-render markdown-body" id="note-render"></div>
+  </div>
 </section>
 
 <!-- ============ DROP ZONE ============ -->
-<div id="drop"><div class="box"><div class="smallcaps">Add to your library</div><h3>Drop PDF files to shelve them</h3></div></div>
+<div id="drop"><div class="box"><div class="smallcaps" data-i18n="drop.kicker">Add to your library</div><h3 data-i18n="drop.body">Drop PDF files to shelve them</h3></div></div>
+
+<!-- ============ USER SETTINGS ============ -->
+<div id="settings" class="hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+  <div class="settings-card">
+    <h2 id="settings-title" class="smallcaps" data-i18n="settings.title">Settings</h2>
+    <div class="field">
+      <label for="lang-select" data-i18n="settings.language">Language</label>
+      <select id="lang-select">
+        <option value="system" data-i18n="settings.langSystem">System default</option>
+        <option value="en">English</option>
+        <option value="pt-BR">Português (Brasil)</option>
+        <option value="es">Español</option>
+      </select>
+    </div>
+    <button class="btn-primary" id="settings-done" data-i18n="settings.done">Done</button>
+  </div>
+</div>
+
+<!-- ============ TEXT SELECTION TOOLBAR ============ -->
+<div id="sel-toolbar">
+  <button id="sel-highlight" data-i18n="clip.highlight">Highlight</button>
+  <button id="sel-share" data-i18n="clip.share">Share</button>
+</div>
+
+<!-- ============ CLIPPING SHARE SHEET ============ -->
+<div id="clip-sheet" class="hidden" role="dialog" aria-modal="true" aria-labelledby="clip-sheet-title">
+  <div class="clip-card">
+    <h2 id="clip-sheet-title" class="smallcaps" data-i18n="clip.sheetTitle">Share a clipping</h2>
+    <div class="clip-preview-wrap"><img id="clip-preview" alt=""></div>
+    <div class="clip-colors" id="clip-colors" aria-label="Highlight colour" data-i18n-aria="clip.color"></div>
+    <div class="clip-actions">
+      <button class="btn-primary" id="clip-share" data-i18n="clip.share">Share</button>
+      <button class="mast-btn" id="clip-save" data-i18n="clip.save">Save clipping</button>
+      <button class="mast-btn" id="clip-download" data-i18n="clip.download">Download</button>
+      <button class="mast-btn hidden" id="clip-delete" data-i18n="clip.delete">Delete</button>
+      <button class="mast-btn" id="clip-close" data-i18n="clip.close">Close</button>
+    </div>
+  </div>
+</div>
 
 <div id="toast"></div>
 

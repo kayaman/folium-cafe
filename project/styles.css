@@ -1,7 +1,9 @@
 /* ============================================================
-   FOLIUM — a private reading room · folium.cafe
-   Literary library theme: warm paper, slab serifs, leather & wood
+   FOLIUM CAFÉ — so you remember the page you were on
+   Literary café theme: warm paper, slab serifs, leather & wood
    ============================================================ */
+
+:root{color-scheme:only light}
 
 @import url('https://fonts.googleapis.com/css2?family=Zilla+Slab:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Spectral:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap');
 
@@ -312,9 +314,43 @@ button{font-family:inherit;cursor:pointer}
 .rstage::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:99px;border:3px solid transparent;background-clip:content-box}
 .rcanvas-wrap{display:flex;justify-content:center;padding:34px 24px 60px;min-height:100%}
 .rcanvas-col{display:flex;flex-direction:column;align-items:center;gap:26px;width:100%}
-.rpage{background:#fff;box-shadow:0 24px 60px -18px rgba(0,0,0,.7),0 2px 0 rgba(255,255,255,.05);
+.rpage{position:relative;background:#fff;box-shadow:0 24px 60px -18px rgba(0,0,0,.7),0 2px 0 rgba(255,255,255,.05);
   border-radius:1px;max-width:100%}
 .rpage canvas{display:block;border-radius:1px}
+
+/* scroll-text formats (txt/md): one readable column, no canvas page */
+.doc-scroll{width:min(820px,100%);background:var(--paper,#fdfaf2);color:var(--ink,#2a2018);
+  padding:46px 40px 96px;border-radius:2px;
+  box-shadow:0 24px 60px -18px rgba(0,0,0,.7),0 2px 0 rgba(255,255,255,.05)}
+.doc-scroll.markdown-body{font-family:var(--read);font-size:18px;line-height:1.75}
+.doc-plain pre{white-space:pre-wrap;word-wrap:break-word;margin:0;
+  font-family:var(--read);font-size:17px;line-height:1.7;color:inherit}
+@media (max-width:640px){.doc-scroll{padding:30px 20px 80px}}
+
+/* media formats (audio/video): a centered native player, online-only */
+.media-stage{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  width:100%;min-height:60vh;gap:18px}
+.media-stage.is-video video{display:block;width:min(860px,100%);max-height:78vh;
+  background:#000;border-radius:4px;box-shadow:0 24px 60px -18px rgba(0,0,0,.7)}
+.media-stage.is-audio{min-height:40vh}
+.media-stage.is-audio audio{width:min(560px,100%)}
+
+/* reflow format (epub): a paginated single column rendered into an iframe by
+   epub.js. The stage needs a bounded height for paginated flow; the view is
+   capped to a comfortable reading width and matted like a page. */
+.epub-stage{width:min(820px,100%);height:calc(100vh - 200px);min-height:60vh;
+  background:var(--paper,#fdfaf2);border-radius:2px;padding:8px 10px;
+  box-shadow:0 24px 60px -18px rgba(0,0,0,.7),0 2px 0 rgba(255,255,255,.05)}
+.epub-view{width:100%;height:100%}
+@media (max-width:640px){.epub-stage{height:calc(100vh - 168px);padding:4px 2px}}
+
+/* capability gating: hide reader chrome a format can't use */
+#reader.no-capture #r-snap{display:none}
+#reader.no-zoom .seg.zoom{display:none}
+#reader.no-paged .pager,
+#reader.no-paged .rnav{display:none}
+/* reflow (epub) has no numeric pager, but keeps the floating prev/next arrows */
+#reader.no-paged.is-reflow .rnav{display:grid}
 
 /* reading progress strip */
 .rprogress{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(0,0,0,.3);z-index:6}
@@ -363,6 +399,7 @@ button{font-family:inherit;cursor:pointer}
   .rbar .seg,.continue .ca{}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none !important;animation-duration:.01ms !important}}
+<<<<<<< HEAD
 /* ---- auth tabs & confirm step ---- */
 .auth-tabs{display:flex;gap:0;margin:0 0 18px;border-bottom:1px solid rgba(0,0,0,.15)}
 .auth-tabs button{
@@ -378,3 +415,187 @@ button{font-family:inherit;cursor:pointer}
   font:inherit;font-size:12.5px;text-decoration:underline;opacity:.7;color:inherit
 }
 .linklike:hover{opacity:1}
+=======
+/* ============================================================
+   PWA / EDGE-TO-EDGE (Android viewport-fit=cover)
+   ============================================================ */
+.crest svg{width:32px;height:32px}
+.masthead{padding-top:env(safe-area-inset-top)}
+body{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
+.rbar{padding-top:env(safe-area-inset-top);height:calc(56px + env(safe-area-inset-top))}
+.rstage{padding-bottom:env(safe-area-inset-bottom)}
+#toast{bottom:calc(26px + env(safe-area-inset-bottom))}
+
+/* masthead offline indicator */
+.offline-badge{display:none;font-style:italic;font-size:12px;color:var(--brass-hi);
+  border:1px solid rgba(220,176,100,.4);border-radius:3px;padding:3px 8px;white-space:nowrap}
+.offline-badge.show{display:inline-block}
+
+/* "available offline" tick on covers */
+.offdot{position:absolute;left:6px;top:6px;width:8px;height:8px;border-radius:50%;
+  background:var(--brass-hi);box-shadow:0 0 0 2px rgba(42,32,24,.35);z-index:2}
+
+/* ============================================================
+   USER SETTINGS + i18n accommodations
+   ============================================================ */
+#settings{position:fixed;inset:0;z-index:50;display:grid;place-items:center;
+  background:rgba(28,17,10,.5);padding:24px}
+.settings-card{position:relative;width:min(380px,100%);
+  background:linear-gradient(180deg,#f8f1e3,#f1e7d2);
+  border:1px solid var(--rule);border-radius:4px;padding:30px 32px 26px;
+  box-shadow:var(--shadow-3),inset 0 1px 0 rgba(255,255,255,.6)}
+.settings-card::before{content:"";position:absolute;inset:7px;
+  border:1px solid var(--rule-soft);border-radius:2px;pointer-events:none}
+.settings-card h2{margin:0 0 18px;text-align:center;font-size:12px}
+.settings-card select{
+  width:100%;padding:12px 14px;font-family:var(--read);font-size:16px;color:var(--ink);
+  background:#fdfaf2;border:1px solid var(--rule);border-radius:3px;outline:none;transition:.18s}
+.settings-card select:focus{border-color:var(--leather-2);box-shadow:0 0 0 3px rgba(124,51,39,.12)}
+.settings-card .btn-primary{margin-top:14px}
+
+/* longer pt/es strings */
+#toast{max-width:min(560px,92vw);text-align:center}
+.dropdown{min-width:210px;width:max-content;max-width:280px}
+
+/* ============================================================
+   CLIPPINGS — overlay boxes, capture selection, share sheet
+   ============================================================ */
+.rclips{position:absolute;inset:0;pointer-events:none}
+.rclip{position:absolute;pointer-events:auto;cursor:pointer;border:2px solid var(--clip-color,#dcb064);
+  border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.15);transition:background .15s}
+.rclip:hover{background:color-mix(in srgb, var(--clip-color,#dcb064) 22%, transparent)}
+.rclip.text{border-width:0;background:color-mix(in srgb, var(--clip-color,#dcb064) 38%, transparent);
+  mix-blend-mode:multiply;border-radius:1px}
+.rclip.text:hover{background:color-mix(in srgb, var(--clip-color,#dcb064) 55%, transparent)}
+
+#r-snap.active{background:linear-gradient(180deg,var(--brass-hi),var(--brass));color:#3a2410;
+  border-color:var(--wood-2)}
+#reader.capturing .rstage{cursor:crosshair;touch-action:none}
+#reader.capturing .rpage{user-select:none}
+#r-capsel{position:fixed;z-index:45;display:none;pointer-events:none;border-radius:2px;
+  border:2px dashed var(--brass-hi);background:rgba(220,176,100,.14)}
+#r-capsel.show{display:block}
+
+#clip-sheet{position:fixed;inset:0;z-index:55;display:grid;place-items:center;
+  background:rgba(28,17,10,.55);padding:20px}
+.clip-card{position:relative;width:min(420px,100%);max-height:92vh;overflow:auto;
+  background:linear-gradient(180deg,#f8f1e3,#f1e7d2);border:1px solid var(--rule);border-radius:4px;
+  padding:22px 22px 20px;box-shadow:var(--shadow-3),inset 0 1px 0 rgba(255,255,255,.6)}
+.clip-card h2{margin:0 0 14px;text-align:center;font-size:12px}
+.clip-preview-wrap{display:flex;justify-content:center;background:#e7dabd;border:1px solid var(--rule-soft);
+  border-radius:3px;padding:10px;margin-bottom:14px}
+#clip-preview{max-width:100%;max-height:48vh;border-radius:2px;box-shadow:var(--shadow-2)}
+.clip-colors{display:flex;gap:10px;justify-content:center;margin-bottom:16px}
+.clip-colors .swatch{width:26px;height:26px;border-radius:50%;border:2px solid rgba(0,0,0,.18);
+  cursor:pointer;padding:0;transition:transform .12s,box-shadow .12s}
+.clip-colors .swatch.active{box-shadow:0 0 0 2px var(--paper),0 0 0 4px var(--leather);transform:scale(1.08)}
+.clip-actions{display:flex;flex-direction:column;gap:9px}
+.clip-actions .btn-primary{margin:0}
+.clip-actions .mast-btn{justify-content:center;background:transparent;color:var(--ink);
+  border:1px solid var(--rule);text-transform:none;letter-spacing:.02em;font-family:var(--read);
+  font-size:14px;font-weight:500;padding:11px}
+.clip-actions .mast-btn:hover{background:rgba(110,74,41,.08);border-color:var(--wood-hi)}
+#clip-delete{color:var(--leather)}
+
+/* ============================================================
+   TEXT LAYER (selectable) + selection toolbar
+   ============================================================ */
+.textLayer{position:absolute;left:0;top:0;text-align:initial;overflow:clip;line-height:1;
+  opacity:1;z-index:2;forced-color-adjust:none;transform-origin:0 0;
+  -webkit-text-size-adjust:none;text-size-adjust:none}
+.textLayer span,.textLayer br{color:transparent;position:absolute;white-space:pre;cursor:text;
+  transform-origin:0 0}
+.textLayer span.markedContent{top:0;height:0}
+.textLayer ::selection{background:rgba(94,38,29,.32)}
+.rclips{z-index:3}
+#reader.capturing .textLayer{pointer-events:none}
+
+#sel-toolbar{position:fixed;z-index:46;display:none;gap:2px;padding:4px;
+  background:linear-gradient(180deg,var(--leather-2),var(--leather));
+  border:1px solid var(--wood-2);border-radius:7px;box-shadow:var(--shadow-3)}
+#sel-toolbar.show{display:flex}
+#sel-toolbar button{border:0;background:transparent;color:#f3e6cd;font-family:var(--display);
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;font-weight:600;padding:8px 14px;border-radius:5px}
+#sel-toolbar button:hover{background:rgba(0,0,0,.18)}
+#sel-toolbar #sel-highlight{color:var(--brass-hi)}
+
+/* ============================================================
+   NOTES — library cover badge + standalone editor
+   ============================================================ */
+/* note covers reuse .gen-cover; tint toward green/brass + a corner badge */
+.note-cover .gen-cover{background:linear-gradient(160deg,#f3ecd9,#e7dec4)}
+.note-cover .gen-cover .ga{font-style:normal;text-transform:uppercase;letter-spacing:.14em;
+  font-size:9px;color:var(--green);font-family:var(--display);font-weight:600}
+.note-badge{position:absolute;right:6px;top:6px;z-index:2;
+  font-family:var(--display);font-weight:700;font-size:9px;letter-spacing:.08em;
+  padding:2px 6px;border-radius:3px;color:#2a1808;
+  background:linear-gradient(180deg,var(--brass-hi),var(--brass));
+  box-shadow:0 0 0 1px rgba(42,32,24,.25)}
+.row .rcv.note-cover{position:relative;background:#eee3c6}
+.row .rcv.note-cover .note-badge{right:3px;top:3px;font-size:8px;padding:1px 4px}
+
+#btn-newnote svg{width:16px;height:16px}
+.empty-actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+
+/* editor overlay — mirrors #reader */
+#note-editor{position:fixed;inset:0;z-index:36;display:none;flex-direction:column;
+  background:var(--paper);background-image:radial-gradient(120% 90% at 50% 0%,#f3ecda,#e7dec4)}
+#note-editor.show{display:flex}
+.nbar{display:flex;align-items:center;gap:14px;height:56px;padding:0 18px;flex:none;
+  background:linear-gradient(180deg,#f8f1e3,#efe3ca);
+  border-bottom:1px solid var(--rule);color:var(--ink);box-shadow:var(--shadow-1);z-index:5}
+.nbar .ico{width:38px;height:38px;border-radius:6px;border:1px solid var(--rule);
+  background:#fdfaf2;color:var(--ink-2);display:grid;place-items:center;cursor:pointer;transition:.16s}
+.nbar .ico:hover{background:rgba(110,74,41,.08);border-color:var(--wood-hi)}
+.nbar .ico svg{width:18px;height:18px}
+.nbar .note-title{flex:1;min-width:0;max-width:520px;background:transparent;border:0;outline:none;
+  font-family:var(--display);font-weight:600;font-size:18px;color:var(--ink);
+  border-bottom:1px solid transparent;padding:4px 2px;transition:border-color .16s}
+.nbar .note-title:focus{border-bottom-color:var(--brass)}
+.nbar .note-title::placeholder{color:var(--muted);font-style:italic;font-weight:500}
+.nbar .nspacer{flex:1}
+.nbar .seg{display:flex;background:rgba(110,74,41,.10);border:1px solid var(--rule);border-radius:6px;padding:2px}
+.nbar .seg button{border:0;background:transparent;color:var(--ink-2);padding:6px 12px;border-radius:4px;
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.1em;font-size:10.5px;font-weight:600;cursor:pointer}
+.nbar .seg button.active{background:var(--brass);color:#2a1808}
+.nbar .note-saved{font-style:italic;font-size:12px;color:var(--muted);min-width:0;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;max-width:34vw}
+#note-delete{color:var(--leather)}
+
+.nstage{flex:1;overflow:auto;position:relative;display:flex;justify-content:center}
+.note-body{width:min(820px,100%);min-height:100%;border:0;outline:none;resize:none;
+  background:transparent;color:var(--ink);padding:38px 28px 90px;
+  font-family:var(--read);font-size:18px;line-height:1.75;letter-spacing:.005em}
+.note-body::placeholder{color:var(--muted)}
+.note-render{display:none;width:min(820px,100%);padding:38px 28px 90px}
+#note-editor.preview .note-body{display:none}
+#note-editor.preview .note-render{display:block}
+
+/* rendered markdown typography — the app's serif + comfortable measure */
+.markdown-body{font-family:var(--read);font-size:18px;line-height:1.75;color:var(--ink);word-wrap:break-word}
+.markdown-body h1,.markdown-body h2,.markdown-body h3,.markdown-body h4{
+  font-family:var(--display);font-weight:700;color:var(--leather);line-height:1.2;margin:1.4em 0 .5em}
+.markdown-body h1{font-size:30px}.markdown-body h2{font-size:24px}.markdown-body h3{font-size:20px}
+.markdown-body p{margin:0 0 1em}
+.markdown-body a{color:var(--leather-2);text-decoration:underline}
+.markdown-body strong{font-weight:600}.markdown-body em{font-style:italic}
+.markdown-body ul,.markdown-body ol{margin:0 0 1em;padding-left:1.5em}
+.markdown-body li{margin:.25em 0}
+.markdown-body blockquote{margin:0 0 1em;padding:.2em 1.1em;border-left:3px solid var(--brass);
+  color:var(--ink-2);font-style:italic;background:rgba(179,133,58,.06)}
+.markdown-body code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.88em;
+  background:rgba(110,74,41,.10);padding:.12em .4em;border-radius:3px}
+.markdown-body pre{background:#2c2218;color:#ecdcbf;padding:14px 16px;border-radius:6px;overflow:auto;margin:0 0 1em}
+.markdown-body pre code{background:transparent;padding:0;color:inherit}
+.markdown-body hr{border:0;border-top:1px solid var(--rule);margin:1.6em 0}
+.markdown-body img{max-width:100%;border-radius:3px}
+.markdown-body table{border-collapse:collapse;margin:0 0 1em}
+.markdown-body th,.markdown-body td{border:1px solid var(--rule);padding:6px 10px}
+
+@media (max-width:760px){
+  .nbar{gap:10px;padding:0 12px}
+  .nbar .note-saved{display:none}
+  #btn-newnote span{display:none}
+  .note-body,.note-render{padding:24px 18px 80px;font-size:17px}
+}
+>>>>>>> origin/main

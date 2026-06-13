@@ -7,7 +7,6 @@ on:
 permissions:
   id-token: write
   contents: read
-  issues: write
 
 concurrency:
   group: deploy-main
@@ -24,6 +23,8 @@ jobs:
           node-version: '20'
 
       - name: Build frontend
+        env:
+          BUILD_ID: ${{ github.sha }}
         run: |
           npm ci
           npm run build
@@ -47,19 +48,6 @@ jobs:
           terraform init -input=false
           terraform apply -auto-approve -input=false
 
-      - name: Folium name servers
-        working-directory: infra
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "### folium.cafe name servers (set these at GoDaddy)" >> "$GITHUB_STEP_SUMMARY"
-          NS=$(terraform output -json folium_name_servers)
-          echo "$NS" | tee -a "$GITHUB_STEP_SUMMARY"
-          BODY=$(printf 'Route53 hosted zone for **folium.cafe** is live. Configure these name servers at GoDaddy:\n\n```json\n%s\n```' "$NS")
-          curl -s -X POST -H "Authorization: token $GH_TOKEN" \
-            "https://api.github.com/repos/${{ github.repository }}/issues" \
-            -d "$(printf '{"title":"folium.cafe name servers","body":%s}' "$(echo "$BODY" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')")" >/dev/null
-
       - name: Read outputs
         id: tf
         working-directory: infra
@@ -70,9 +58,18 @@ jobs:
 
       - name: Publish frontend to S3
         run: |
-          aws s3 cp project/index.html "s3://${{ steps.tf.outputs.site_bucket }}/index.html" --cache-control "no-cache"
-          aws s3 cp project/app.js     "s3://${{ steps.tf.outputs.site_bucket }}/app.js"     --cache-control "max-age=300"
-          aws s3 cp project/styles.css "s3://${{ steps.tf.outputs.site_bucket }}/styles.css" --cache-control "max-age=300"
+          B="s3://${{ steps.tf.outputs.site_bucket }}"
+          aws s3 cp project/index.html "$B/index.html" --cache-control "no-cache"
+          aws s3 cp project/app.js     "$B/app.js"     --cache-control "max-age=300"
+          aws s3 cp project/styles.css "$B/styles.css" --cache-control "max-age=300"
+          # sw.js must be no-cache: a cached service worker delays every future update by up to 24h
+          aws s3 cp project/sw.js "$B/sw.js" --cache-control "no-cache" --content-type "application/javascript"
+          # explicit content-type: the CLI's mimetype guess for .webmanifest is unreliable on runners
+          aws s3 cp project/manifest.webmanifest "$B/manifest.webmanifest" --cache-control "max-age=300" --content-type "application/manifest+json"
+          aws s3 cp project/favicon.svg    "$B/favicon.svg"    --cache-control "max-age=86400" --content-type "image/svg+xml"
+          aws s3 cp project/favicon-32.png "$B/favicon-32.png" --cache-control "max-age=86400"
+          aws s3 cp project/icons/  "$B/icons/"  --recursive --cache-control "max-age=86400"
+          aws s3 cp project/vendor/ "$B/vendor/" --recursive --cache-control "max-age=86400" --content-type "application/javascript"
 
       - name: Update Lambda code
         working-directory: backend
@@ -87,4 +84,5 @@ jobs:
         run: |
           aws cloudfront create-invalidation \
             --distribution-id "${{ steps.tf.outputs.distribution_id }}" \
-            --paths "/index.html" "/app.js" "/styles.css"
+            --paths "/" "/index.html" "/app.js" "/styles.css" "/sw.js" "/manifest.webmanifest" \
+              "/favicon.svg" "/favicon-32.png" "/icons/*" "/vendor/*"

@@ -4,7 +4,7 @@ provider "aws" {
   region = "us-east-1"
   default_tags {
     tags = {
-      Project = "folium"
+      Project = "folium-cafe"
       App     = "folium.cafe"
     }
   }
