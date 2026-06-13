@@ -62,7 +62,8 @@ resource "aws_iam_role_policy" "ci" {
         Effect = "Allow"
         Action = [
           "cloudfront:*", "s3:*", "lambda:*", "dynamodb:*", "iam:*",
-          "acm:*", "route53:*", "ssm:*", "logs:*"
+          "acm:*", "route53:*", "ssm:*", "logs:*",
+          "cognito-idp:*", "ses:*"
         ]
         Resource = "*"
       }

@@ -8,6 +8,15 @@ A private, single-user PDF reading room at [folium.cafe](https://folium.cafe). U
 
 ## Features
 
+<<<<<<< HEAD
+- **Reading cards** — personal accounts (Cognito): pick a handle, verify your email, stay signed in for 90 days
+- **Three library layouts**, switchable live: Shelf (covers on wooden planks), Covers (gallery grid), List (editorial rows with progress and last-read time)
+- **Real PDF rendering** in the browser via pdf.js — fit-to-width with Comfort ↔ Full toggle and zoom
+- **Page memory per book** — resumes exactly where you left off, synced across devices, with a "Continue reading" hero
+- **Distraction-free mode** — press **F** for fullscreen reading; Esc to return
+- **Drag-and-drop uploads** — books live in your private AWS backend (S3 + DynamoDB), behind a login
+- Keyboard: ←/→ or Space to turn pages, type a page number to jump, Home/End
+=======
 - **Cross-device library** — book metadata and reading progress live server-side behind one passphrase
 - **PWA** — installs to the Android home screen (leaf crest, splash, edge-to-edge leather theming, "Continue reading" shortcut)
 - **Offline reading** — opened books are cached on-device (LRU, 10 books); page turns made offline sync back when you reconnect
@@ -23,6 +32,7 @@ A private, single-user PDF reading room at [folium.cafe](https://folium.cafe). U
 | State | DynamoDB (metadata + progress), S3 (PDF bytes via presigned URLs) |
 | Infra | Terraform — CloudFront, S3 (OAC), ACM, Route 53, SSM, IAM/OIDC |
 | CI/CD | GitHub Actions: PR → build/test/plan · main → apply/deploy/invalidate |
+>>>>>>> origin/main
 
 ## Development
 

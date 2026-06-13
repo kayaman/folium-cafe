@@ -39,9 +39,17 @@ resource "aws_iam_role_policy" "lambda" {
         Resource = "${aws_s3_bucket.pdfs.arn}/*"
       },
       {
-        Effect   = "Allow"
-        Action   = ["ssm:GetParameters"]
-        Resource = [aws_ssm_parameter.password.arn, aws_ssm_parameter.hmac_key.arn]
+        Effect = "Allow"
+        Action = [
+          "cognito-idp:SignUp",
+          "cognito-idp:ConfirmSignUp",
+          "cognito-idp:ResendConfirmationCode",
+          "cognito-idp:InitiateAuth",
+          "cognito-idp:RevokeToken",
+          "cognito-idp:ForgotPassword",
+          "cognito-idp:ConfirmForgotPassword"
+        ]
+        Resource = aws_cognito_user_pool.users.arn
       }
     ]
   })
@@ -73,11 +81,11 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      TABLE_NAME     = aws_dynamodb_table.books.name
-      PDF_BUCKET     = aws_s3_bucket.pdfs.bucket
-      PASSWORD_PARAM = aws_ssm_parameter.password.name
-      HMAC_PARAM     = aws_ssm_parameter.hmac_key.name
-      ORIGIN_SECRET  = random_password.origin_secret.result
+      TABLE_NAME          = aws_dynamodb_table.books.name
+      PDF_BUCKET          = aws_s3_bucket.pdfs.bucket
+      ORIGIN_SECRET       = random_password.origin_secret.result
+      USER_POOL_ID        = aws_cognito_user_pool.users.id
+      USER_POOL_CLIENT_ID = aws_cognito_user_pool_client.bff.id
     }
   }
 

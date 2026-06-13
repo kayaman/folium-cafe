@@ -23,6 +23,56 @@
 <!-- ============ LOGIN ============ -->
 <section id="login">
   <div class="vignette"></div>
+<<<<<<< HEAD
+  <div class="login-card">
+    <div class="crest">F</div>
+    <h1>FOLIUM</h1>
+    <p class="tag">a private reading room</p>
+    <div class="auth-tabs">
+      <button id="tab-signin" type="button" class="active">Sign in</button>
+      <button id="tab-join" type="button">Join</button>
+    </div>
+    <form id="login-form" autocomplete="on">
+      <div class="field">
+        <label for="login-user">Username or email</label>
+        <input id="login-user" type="text" autocomplete="username" required>
+      </div>
+      <div class="field">
+        <label for="login-pass">Passphrase</label>
+        <input id="login-pass" type="password" autocomplete="current-password" required>
+      </div>
+      <button class="btn-primary" type="submit">Enter the reading room</button>
+    </form>
+    <form id="signup-form" class="hidden" autocomplete="on">
+      <div class="field">
+        <label for="su-user">Username</label>
+        <input id="su-user" type="text" minlength="4" maxlength="12" autocomplete="username"
+               pattern="[a-zA-Z0-9][a-zA-Z0-9\-]{2,10}[a-zA-Z0-9]" required>
+        <p class="hint">4–12 characters: letters, digits, hyphens</p>
+      </div>
+      <div class="field">
+        <label for="su-email">Email</label>
+        <input id="su-email" type="email" autocomplete="email" required>
+      </div>
+      <div class="field">
+        <label for="su-pass">Passphrase</label>
+        <input id="su-pass" type="password" minlength="12" autocomplete="new-password" required>
+        <p class="hint">at least 12 characters</p>
+      </div>
+      <button class="btn-primary" type="submit">Request a reading card</button>
+    </form>
+    <form id="confirm-form" class="hidden">
+      <p class="confirm-note">A six-digit code is on its way to <strong id="confirm-email"></strong>.</p>
+      <div class="field">
+        <label for="cf-code">Verification code</label>
+        <input id="cf-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required>
+      </div>
+      <button class="btn-primary" type="submit">Open my reading card</button>
+      <button class="linklike" id="cf-resend" type="button">Resend the code</button>
+    </form>
+    <p class="login-note">Your shelf follows you to any device.</p>
+  </div>
+=======
   <form class="login-card" id="login-form" autocomplete="off">
     <div class="crest"><svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M45 13C52 24 46 42 26 49C17 39 24 21 45 13Z"/><path d="M26 49C33 39 39 28 45 13"/><path d="M26 49L21 55"/><path d="M34 38C37 37 40 35 42 32" stroke-width="1.8"/><path d="M32 31C35 30 38 28 40 25" stroke-width="1.8"/><path d="M31 43C33 43 36 42 38 40" stroke-width="1.8"/></svg></div>
     <h1>FOLIUM CAFÉ</h1>
@@ -38,6 +88,7 @@
     <button class="btn-primary" type="submit" data-i18n="login.submit">Enter the café</button>
     <p class="login-note" data-i18n="login.note">Your library is kept on a private shelf — sign in from any device to pick up where you left off.</p>
   </form>
+>>>>>>> origin/main
 </section>
 
 <!-- ============ APP ============ -->
