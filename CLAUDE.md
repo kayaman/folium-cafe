@@ -53,7 +53,7 @@ Password and HMAC key are SSM SecureStrings (`/folium-cafe/app_password`, `/foli
 
 ### Frontend (`project/app.ts`, single file)
 
-Organized by `// ---------- section ----------` comments. UI strings are localized (en/pt-BR/es) via the `// ---------- i18n ----------` section: `t()`/`tn()` for TS strings, `data-i18n*` attributes for static index.html markup, locale resolved from `localStorage['folium.lang']` override → `navigator.languages` → en, overridable in the Settings modal; the FOLIUM CAFÉ wordmark, `<title>`, meta description, and manifest are deliberately never translated. The data-layer functions keep their pre-migration IndexedDB names (`dbAll`/`dbPut`/`dbGet`/`dbDel`) but are fetch calls to `/api/*` — don't be misled by the names. Upload flow: parse PDF locally with PDF.js (self-hosted in `project/vendor/`, pinned 3.11.174; unpkg only for lazy fonts/cmaps) → `POST /api/books` returns a presigned PUT → browser uploads bytes to S3. `api()` throws typed errors: `ApiAuthError` (401 → login screen) vs `ApiNetworkError` (→ offline mode). View preferences stay in `localStorage` (`folium.*` keys; a one-time `folio.*` migration runs at startup — removable after a few releases).
+Organized by `// ---------- section ----------` comments. UI strings are localized (en/pt-BR/es) via the `// ---------- i18n ----------` section: `t()`/`tn()` for TS strings, `data-i18n*` attributes for static index.html markup, locale resolved from `localStorage['folium.lang']` override → `navigator.languages` → en, overridable in the Settings modal; the FOLIUM CAFÉ wordmark, `<title>`, meta description, and manifest are deliberately never translated. The data-layer functions keep their pre-migration IndexedDB names (`dbAll`/`dbPut`/`dbGet`/`dbDel`) but are fetch calls to `/api/*` — don't be misled by the names. The reader is format-agnostic via the `DocAdapter` seam: `PdfAdapter`/`CbzAdapter` (canvas, paged), `ScrollTextAdapter` (txt/md, scroll), `EpubAdapter` (epub, reflow — epub.js paginated in an iframe, CFI-positioned), `MediaAdapter` (audio/video, online-only stream), plus first-class in-app notes; `makeAdapter()` switches on `book.format`. Heavy/optional libs are vendored and lazy-loaded via `loadVendor()` (PDF.js precached in SHELL; fflate for CBZ, and jszip+epub.js for EPUB pulled on first use into `folium-vendor-v1`). Upload flow: parse the file locally for metadata + cover → `POST /api/books` returns a presigned PUT → browser uploads bytes to S3 with the format's content-type. `api()` throws typed errors: `ApiAuthError` (401 → login screen) vs `ApiNetworkError` (→ offline mode). View preferences stay in `localStorage` (`folium.*` keys; a one-time `folio.*` migration runs at startup — removable after a few releases).
 
 ### PWA / offline (`project/sw.ts` + app-layer caches)
 
@@ -63,7 +63,8 @@ Hand-rolled service worker, no Workbox. Cache inventory — the SW's activate ha
 |---|---|---|
 | `folium-shell-<BUILD_ID>` | SW precache | app shell incl. vendor PDF.js |
 | `folium-cdn-v1` | SW runtime | unpkg standard_fonts/cmaps |
-| `folium-pdf` | app.ts | PDF bytes under synthetic `/pdf-store/{id}` keys (LRU-10, presigned URLs can't be cache keys — they expire) |
+| `folium-vendor-v1` | SW runtime | lazily-loaded `/vendor/*` libs not in SHELL (fflate for CBZ; jszip + epub.js for EPUB) |
+| `folium-pdf` | app.ts | PDF/CBZ/EPUB/txt/md bytes under synthetic `/pdf-store/{id}` keys (LRU-10, presigned URLs can't be cache keys — they expire; audio/video stream from S3 and are never cached here) |
 | `folium-data` | app.ts | `GET /api/books` snapshot for offline boot |
 | `folium-shared` | SW | Android share-sheet PDFs awaiting post-login ingest |
 

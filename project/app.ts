@@ -17,7 +17,108 @@ const PDFJS_VER = '3.11.174';
 const PDFJS_CDN = 'https://unpkg.com/pdfjs-dist@' + PDFJS_VER;
 pdfjs.GlobalWorkerOptions.workerSrc = '/vendor/pdf.worker.min.js';
 
+// ---------- marked (markdown) ----------
+// Vendored UMD build (window.marked), precached in the SW shell. Configured once
+// at startup: GitHub-style line breaks, and raw inline HTML in note bodies is
+// neutralized (single-user, but avoid surprises from pasted markup).
+const marked: any = (window as any).marked;
+function setupMarked(): void {
+  try {
+    marked?.setOptions?.({ breaks: true });
+    // marked v12 dropped the `sanitize` option; the supported way to refuse raw
+    // inline/block HTML is a renderer override that escapes the html token.
+    if (marked?.use) {
+      marked.use({
+        renderer: {
+          html(token: any): string {
+            const raw = typeof token === 'string' ? token : (token?.raw ?? token?.text ?? '');
+            return escapeHtml(String(raw));
+          },
+        },
+      });
+    }
+  } catch { /* markdown rendering is best-effort */ }
+}
+// Render markdown to an HTML string for the note preview, falling back to escaped
+// plain text if the library is unavailable.
+function renderMarkdown(src: string): string {
+  try {
+    if (marked?.parse) return marked.parse(src) as string;
+  } catch { /* fall through */ }
+  return '<p>' + escapeHtml(src).replace(/\n/g, '<br>') + '</p>';
+}
+
+// ---------- lazy vendor loader ----------
+// Injects a <script src=path> once and resolves when it loads. Used to pull in
+// heavy/optional libs (fflate for CBZ) on demand rather than precaching them.
+// The SW caches /vendor/* on first fetch (VENDOR_CACHE) so it works offline next
+// time. Memoized so concurrent callers share one load.
+const _vendorLoads = new Map<string, Promise<void>>();
+function loadVendor(path: string): Promise<void> {
+  let p = _vendorLoads.get(path);
+  if (p) return p;
+  p = new Promise<void>((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = path;
+    s.async = true;
+    s.onload = () => resolve();
+    s.onerror = () => { _vendorLoads.delete(path); reject(new Error('failed to load ' + path)); };
+    document.head.appendChild(s);
+  });
+  _vendorLoads.set(path, p);
+  return p;
+}
+
 // ---------- types ----------
+// Multi-format seam (Phase 0). Today every book is a PDF; `format` defaults to
+// 'pdf' everywhere it's read (`book.format ?? 'pdf'`). The remaining formats are
+// declared now so the adapter plumbing is type-complete before later phases land.
+type DocFormat = 'pdf' | 'cbz' | 'epub' | 'txt' | 'md' | 'audio' | 'video' | 'note';
+type DocMode = 'canvas' | 'scroll' | 'reflow' | 'media';
+
+// What a format can do — drives reader-chrome gating in openBook(). PDF = all on.
+interface DocCaps {
+  paged: boolean;
+  canvasPages: boolean;
+  textSelectable: boolean;
+  regionClippable: boolean;
+  timeMedia: boolean;
+  reflowable: boolean;
+  zoomable: boolean;
+}
+
+// A position within a document. PDF uses `page`; later formats use cfi / fraction
+// / seconds. `reader.pos` is the source of truth, `reader.page` mirrors pos.page.
+interface DocPos {
+  page?: number;
+  cfi?: string;
+  fraction?: number;
+  seconds?: number;
+}
+
+// Everything an adapter needs to paint itself into the reader column.
+interface RenderCtx {
+  col: HTMLElement;
+  stage: HTMLElement;
+  width: 'comfort' | 'full';
+  zoom: number;
+  token: number;
+  drawClipOverlay(wrap: HTMLElement, cssW: number, cssH: number): void;
+}
+
+// The per-format rendering/position contract. PdfAdapter is the only impl today.
+interface DocAdapter {
+  readonly format: DocFormat;
+  readonly mode: DocMode;
+  readonly caps: DocCaps;
+  readonly total: number;
+  render(pos: DocPos, ctx: RenderCtx, keepScroll: boolean): Promise<void>;
+  toBarPercent(pos: DocPos): number;
+  posLabel(pos: DocPos): { current: string; total: string };
+  currentCanvas(): HTMLCanvasElement | null;
+  destroy(): void;
+}
+
 interface Book {
   id: string;
   title: string;
@@ -29,7 +130,14 @@ interface Book {
   cover: string | null;   // dataURL or null -> generated text cover
   addedAt: number;
   lastReadAt: number;
+  format?: DocFormat;     // defaults to 'pdf'; absent on legacy/PDF books
+  noteFormat?: 'text' | 'markdown';  // notes only ('note' format)
+  // Generalized reading position for non-paged formats (scroll/media). Paged
+  // formats keep using `currentPage`; scroll formats persist `{kind:'fraction'}`.
+  progress?: { kind: 'page' | 'cfi' | 'fraction' | 'seconds'; value: number | string };
 }
+// A note is a first-class library item with no PDF bytes: numPages 1, no cover.
+function isNote(b: Book): boolean { return b.format === 'note'; }
 type ViewMode = 'shelf' | 'grid' | 'list';
 
 // A clipping: a saved selection from one page. rects are normalized page
@@ -119,7 +227,7 @@ const EN = {
   'settings.done': 'Done',
   'toast.offlineAdd': 'You’re offline — try adding books when you’re back online',
   'toast.cantRead': 'Could not read “{name}”',
-  'toast.pdfOnly': 'Please choose PDF files',
+  'toast.unsupported': 'Unsupported file type — try PDF, EPUB, CBZ, TXT, Markdown, audio or video',
   'toast.shelving.one': 'Shelving your book…',
   'toast.shelving.other': 'Shelving {n} books…',
   'toast.shelvingShared.one': 'Shelving your shared book…',
@@ -131,6 +239,7 @@ const EN = {
   'toast.cantLoad': 'Could not load this PDF',
   'toast.notDownloaded': 'This book isn’t downloaded on this device',
   'toast.loadFailed': 'Failed to load this PDF',
+  'toast.mediaError': 'Playback needs a connection — try again online',
   'toast.wrongPass': 'Wrong password',
   'toast.noServer': 'Could not reach the server',
   'time.notOpened': 'Not yet opened',
@@ -150,6 +259,22 @@ const EN = {
   'clip.saved': 'Clipping saved',
   'clip.removed': 'Clipping removed',
   'clip.shareFailed': 'Could not share — downloaded instead',
+  'note.new': 'New note',
+  'note.newTitle': 'Create a note',
+  'note.kind': 'Note',
+  'note.untitled': 'Untitled note',
+  'note.plain': 'Plain text',
+  'note.markdown': 'Markdown',
+  'note.format': 'Format',
+  'note.preview': 'Preview',
+  'note.edit': 'Edit',
+  'note.saved': 'Saved',
+  'note.savedOffline': 'Saved on this device — will sync when online',
+  'note.delete': 'Delete note',
+  'note.confirmDelete': 'Delete “{title}”?',
+  'note.emptyAdd': 'Write your first note',
+  'toast.noteCreated': 'Note created',
+  'toast.noteRemoved': 'Note removed',
 } as const;
 type MsgKey = keyof typeof EN;
 
@@ -212,7 +337,7 @@ const PT: Record<MsgKey, string> = {
   'settings.done': 'Concluído',
   'toast.offlineAdd': 'Você está offline — tente adicionar livros quando voltar a ficar online',
   'toast.cantRead': 'Não foi possível ler “{name}”',
-  'toast.pdfOnly': 'Escolha arquivos PDF',
+  'toast.unsupported': 'Tipo de arquivo não suportado — tente PDF, EPUB, CBZ, TXT, Markdown, áudio ou vídeo',
   'toast.shelving.one': 'Colocando seu livro na estante…',
   'toast.shelving.other': 'Colocando {n} livros na estante…',
   'toast.shelvingShared.one': 'Colocando o livro compartilhado na estante…',
@@ -224,6 +349,7 @@ const PT: Record<MsgKey, string> = {
   'toast.cantLoad': 'Não foi possível carregar este PDF',
   'toast.notDownloaded': 'Este livro não está baixado neste dispositivo',
   'toast.loadFailed': 'Falha ao carregar este PDF',
+  'toast.mediaError': 'A reprodução precisa de conexão — tente novamente online',
   'toast.wrongPass': 'Senha incorreta',
   'toast.noServer': 'Não foi possível conectar ao servidor',
   'time.notOpened': 'Ainda não aberto',
@@ -243,6 +369,22 @@ const PT: Record<MsgKey, string> = {
   'clip.saved': 'Recorte salvo',
   'clip.removed': 'Recorte removido',
   'clip.shareFailed': 'Não foi possível compartilhar — baixado em vez disso',
+  'note.new': 'Nova nota',
+  'note.newTitle': 'Criar uma nota',
+  'note.kind': 'Nota',
+  'note.untitled': 'Nota sem título',
+  'note.plain': 'Texto simples',
+  'note.markdown': 'Markdown',
+  'note.format': 'Formato',
+  'note.preview': 'Visualizar',
+  'note.edit': 'Editar',
+  'note.saved': 'Salvo',
+  'note.savedOffline': 'Salvo neste dispositivo — será sincronizado quando você estiver online',
+  'note.delete': 'Excluir nota',
+  'note.confirmDelete': 'Excluir “{title}”?',
+  'note.emptyAdd': 'Escreva sua primeira nota',
+  'toast.noteCreated': 'Nota criada',
+  'toast.noteRemoved': 'Nota removida',
 };
 
 const ES: Record<MsgKey, string> = {
@@ -304,7 +446,7 @@ const ES: Record<MsgKey, string> = {
   'settings.done': 'Listo',
   'toast.offlineAdd': 'Estás sin conexión: intenta añadir libros cuando vuelvas a estar en línea',
   'toast.cantRead': 'No se pudo leer “{name}”',
-  'toast.pdfOnly': 'Elige archivos PDF',
+  'toast.unsupported': 'Tipo de archivo no compatible — prueba PDF, EPUB, CBZ, TXT, Markdown, audio o vídeo',
   'toast.shelving.one': 'Colocando tu libro en el estante…',
   'toast.shelving.other': 'Colocando {n} libros en el estante…',
   'toast.shelvingShared.one': 'Colocando el libro compartido en el estante…',
@@ -316,6 +458,7 @@ const ES: Record<MsgKey, string> = {
   'toast.cantLoad': 'No se pudo cargar este PDF',
   'toast.notDownloaded': 'Este libro no está descargado en este dispositivo',
   'toast.loadFailed': 'Error al cargar este PDF',
+  'toast.mediaError': 'La reproducción necesita conexión — inténtalo de nuevo en línea',
   'toast.wrongPass': 'Contraseña incorrecta',
   'toast.noServer': 'No se pudo conectar con el servidor',
   'time.notOpened': 'Aún sin abrir',
@@ -335,6 +478,22 @@ const ES: Record<MsgKey, string> = {
   'clip.saved': 'Recorte guardado',
   'clip.removed': 'Recorte eliminado',
   'clip.shareFailed': 'No se pudo compartir — descargado en su lugar',
+  'note.new': 'Nueva nota',
+  'note.newTitle': 'Crear una nota',
+  'note.kind': 'Nota',
+  'note.untitled': 'Nota sin título',
+  'note.plain': 'Texto sin formato',
+  'note.markdown': 'Markdown',
+  'note.format': 'Formato',
+  'note.preview': 'Vista previa',
+  'note.edit': 'Editar',
+  'note.saved': 'Guardado',
+  'note.savedOffline': 'Guardado en este dispositivo — se sincronizará cuando estés en línea',
+  'note.delete': 'Eliminar nota',
+  'note.confirmDelete': '¿Eliminar “{title}”?',
+  'note.emptyAdd': 'Escribe tu primera nota',
+  'toast.noteCreated': 'Nota creada',
+  'toast.noteRemoved': 'Nota eliminada',
 };
 
 const DICTS: Record<Locale, Record<MsgKey, string>> = { en: EN, 'pt-BR': PT, es: ES };
@@ -447,13 +606,13 @@ function dropLru(id: string): void {
   localStorage.setItem(LS.pdfLru, JSON.stringify(lru));
 }
 
-async function cachePdf(id: string, buf: ArrayBuffer): Promise<void> {
+async function cachePdf(id: string, buf: ArrayBuffer, mime: string = 'application/pdf'): Promise<void> {
   try {
     const est = await navigator.storage?.estimate?.().catch(() => null);
     if (est && est.quota && ((est.usage || 0) + buf.byteLength) > est.quota * 0.9) return;
     const cache = await caches.open(PDF_CACHE);
     await cache.put(pdfKey(id),
-      new Response(buf.slice(0), { headers: { 'content-type': 'application/pdf' } }));
+      new Response(buf.slice(0), { headers: { 'content-type': mime } }));
     touchLru(id);
     // Evict least-recently-read beyond the cap; a re-open just re-downloads.
     const lru = lruRead();
@@ -481,18 +640,29 @@ async function refreshOfflineIds(): Promise<void> {
 }
 
 // ---------- offline progress queue ----------
-// Only the latest position per book matters, so a keyed map is lossless.
+// Only the latest position per book matters, so a keyed map is lossless. Paged
+// formats queue `{currentPage}`; scroll/media formats queue a generalized
+// `{progress:{kind,value}}` — the body is shaped here so flush is a dumb replay.
+type ProgressBody =
+  | { currentPage: number; lastReadAt: number }
+  | { progress: { kind: 'page' | 'cfi' | 'fraction' | 'seconds'; value: number | string }; lastReadAt: number };
+
+function progressBodyFor(b: Book): ProgressBody {
+  const lastReadAt = b.lastReadAt || Date.now();
+  if (b.progress) return { progress: b.progress, lastReadAt };
+  return { currentPage: b.currentPage, lastReadAt };
+}
+
 function enqueueProgress(b: Book): void {
-  let q: Record<string, { currentPage: number; lastReadAt: number }>;
+  let q: Record<string, ProgressBody>;
   try { q = JSON.parse(localStorage.getItem(LS.progressQueue) || '{}'); } catch { q = {}; }
-  if (!q[b.id] || b.lastReadAt >= q[b.id].lastReadAt) {
-    q[b.id] = { currentPage: b.currentPage, lastReadAt: b.lastReadAt };
-  }
+  const body = progressBodyFor(b);
+  if (!q[b.id] || b.lastReadAt >= q[b.id].lastReadAt) q[b.id] = body;
   localStorage.setItem(LS.progressQueue, JSON.stringify(q));
 }
 
 async function flushProgressQueue(): Promise<void> {
-  let q: Record<string, { currentPage: number; lastReadAt: number }>;
+  let q: Record<string, ProgressBody>;
   try { q = JSON.parse(localStorage.getItem(LS.progressQueue) || '{}'); } catch { return; }
   for (const id of Object.keys(q)) {
     try {
@@ -534,27 +704,31 @@ async function dbAll(): Promise<BookMeta[]> {
 
 // Persist metadata. If the book carries fresh `data`, upload the bytes to S3.
 async function dbPut(b: Book): Promise<void> {
-  const meta: BookMeta = stripData(b);
+  // Tell the backend the format-specific content-type we'd use; it echoes back
+  // the authoritative `contentType` baked into the presigned PUT signature, and
+  // the S3 PUT MUST send exactly that header or the signature check fails.
+  const meta: BookMeta & { contentType?: string } = stripData(b);
+  meta.contentType = mimeFor(b.format ?? 'pdf', b.fileName);
   const res = await api('/books', { method: 'POST', body: JSON.stringify(meta) });
   if (!res.ok) throw new Error('save failed');
-  const { uploadUrl } = await res.json();
+  const { uploadUrl, contentType } = await res.json();
   if (b.data && uploadUrl) {
     const put = await fetch(uploadUrl, {
       method: 'PUT',
-      headers: { 'content-type': 'application/pdf' },
+      headers: { 'content-type': contentType || mimeFor(b.format ?? 'pdf', b.fileName) },
       body: b.data,
     });
     if (!put.ok) throw new Error('upload failed');
   }
 }
 
-// Update just the reading position (used by persistPage). Offline updates
+// Update just the reading position (used by persistPos). Offline updates
 // queue locally and replay when the connection returns.
 async function dbPutProgress(b: Book): Promise<void> {
   try {
     await api('/books/' + encodeURIComponent(b.id) + '/progress', {
       method: 'PUT',
-      body: JSON.stringify({ currentPage: b.currentPage, lastReadAt: b.lastReadAt || Date.now() }),
+      body: JSON.stringify(progressBodyFor(b)),
     });
   } catch (e) {
     if (e instanceof ApiNetworkError) { enqueueProgress(b); return; }
@@ -582,6 +756,18 @@ async function dbGet(id: string): Promise<ArrayBuffer | null> {
 async function dbDel(id: string): Promise<void> {
   await api('/books/' + encodeURIComponent(id), { method: 'DELETE' });
   await evictPdf(id);
+}
+
+// Resolve a fresh presigned GET URL for a book's bytes WITHOUT downloading them.
+// Media (audio/video) streams straight from S3 via this URL (range requests),
+// so it never touches dbGet / the PDF LRU. Presigned URLs expire (~15 min), so
+// the media adapter fetches one at open time (and again on a playback error).
+async function presignedUrlFor(id: string): Promise<string> {
+  const res = await api('/books/' + encodeURIComponent(id) + '/url');
+  if (!res.ok) throw new ApiNetworkError('url ' + res.status);
+  const { url } = await res.json();
+  if (!url) throw new ApiNetworkError('no url');
+  return url as string;
 }
 
 function stripData(b: Book): BookMeta {
@@ -674,6 +860,83 @@ async function flushClipQueue(): Promise<void> {
   }
 }
 
+// ---------- notes (data) ----------
+// Notes carry their body server-side (like a tiny book), but the body lives in
+// the metadata store flow, not S3. Cache-first in `folium-data` under
+// /data-store/note/{id} so a note survives offline; writes go through PUT
+// /api/notes/{id}, queuing on network failure (latest-body-wins per id).
+const noteBodyKey = (id: string) => '/data-store/note/' + encodeURIComponent(id);
+
+// Fetch a note's body: cache first, then GET /api/notes/{id}, filling the cache.
+async function dbGetNote(id: string): Promise<string> {
+  try {
+    const hit = await (await caches.open(DATA_CACHE)).match(noteBodyKey(id));
+    if (hit) return (await hit.json()).body as string;
+  } catch { /* fall through to network */ }
+  const res = await api('/notes/' + encodeURIComponent(id));
+  if (!res.ok) return '';
+  const body = (await res.json()).body as string || '';
+  try { await (await caches.open(DATA_CACHE)).put(noteBodyKey(id), new Response(JSON.stringify({ body }))); } catch {}
+  return body;
+}
+
+// Persist a note's body: write the cache, then PUT. Offline → enqueue the id.
+async function dbPutNote(id: string, body: string): Promise<void> {
+  try { await (await caches.open(DATA_CACHE)).put(noteBodyKey(id), new Response(JSON.stringify({ body }))); } catch {}
+  try {
+    await api('/notes/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({ body }) });
+  } catch (e) {
+    if (e instanceof ApiNetworkError) { enqueueNote(id); return; }
+    throw e;
+  }
+}
+
+// Delete a note: server item + its cached body. Also drop any queued edit.
+async function dbDelNote(id: string): Promise<void> {
+  await api('/notes/' + encodeURIComponent(id), { method: 'DELETE' });
+  try { await (await caches.open(DATA_CACHE)).delete(noteBodyKey(id)); } catch {}
+  try {
+    const q = JSON.parse(localStorage.getItem(LS.noteQueue) || '{}');
+    if (q[id]) { delete q[id]; localStorage.setItem(LS.noteQueue, JSON.stringify(q)); }
+  } catch {}
+}
+
+// Create a note's metadata item server-side. Body is saved separately (dbPutNote).
+async function dbCreateNote(meta: BookMeta): Promise<void> {
+  const res = await api('/notes', {
+    method: 'POST',
+    body: JSON.stringify({ id: meta.id, title: meta.title, noteFormat: meta.noteFormat }),
+  });
+  if (!res.ok) throw new Error('note create failed');
+}
+
+// Update a note's metadata (title / noteFormat) — reuses the notes PUT route.
+async function dbPutNoteMeta(id: string, fields: { title?: string; noteFormat?: 'text' | 'markdown' }): Promise<void> {
+  await api('/notes/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify(fields) });
+}
+
+// Dirty-id set: which note bodies still need to reach the server. Latest body
+// wins because the body itself is read from the cache at flush time.
+function enqueueNote(id: string): void {
+  let q: Record<string, 1>;
+  try { q = JSON.parse(localStorage.getItem(LS.noteQueue) || '{}'); } catch { q = {}; }
+  q[id] = 1;
+  localStorage.setItem(LS.noteQueue, JSON.stringify(q));
+}
+async function flushNoteQueue(): Promise<void> {
+  let q: Record<string, 1>;
+  try { q = JSON.parse(localStorage.getItem(LS.noteQueue) || '{}'); } catch { return; }
+  for (const id of Object.keys(q)) {
+    try {
+      const hit = await (await caches.open(DATA_CACHE)).match(noteBodyKey(id));
+      const body = hit ? ((await hit.json()).body as string) : '';
+      await api('/notes/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({ body }) });
+      delete q[id];
+      localStorage.setItem(LS.noteQueue, JSON.stringify(q));
+    } catch { break; }  // still offline (or logged out): retry on the next trigger
+  }
+}
+
 // ---------- state ----------
 const LS = {
   user: 'folium.user',
@@ -682,6 +945,7 @@ const LS = {
   pdfLru: 'folium.pdfLru',
   progressQueue: 'folium.progressQueue',
   clipQueue: 'folium.clipQueue',
+  noteQueue: 'folium.noteQueue',
   lang: 'folium.lang',
 };
 migrateLocalStorage();   // must run before viewMode/reader.width read their keys
@@ -698,6 +962,54 @@ function prettifyName(fn: string): string {
     .replace(/\b\w/g, c => c.toUpperCase())
     .trim();
 }
+// Map a file name + MIME to a DocFormat (extension wins; MIME is the tiebreaker).
+// Ingest still only accepts PDFs this phase, so in practice this returns 'pdf'.
+function detectFormat(name: string, mime?: string): DocFormat | null {
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  const byExt: Record<string, DocFormat> = {
+    pdf: 'pdf',
+    cbz: 'cbz',
+    epub: 'epub',
+    txt: 'txt',
+    md: 'md', markdown: 'md',
+    mp3: 'audio', m4a: 'audio', m4b: 'audio', aac: 'audio', ogg: 'audio', oga: 'audio', opus: 'audio', wav: 'audio', flac: 'audio',
+    mp4: 'video', m4v: 'video', webm: 'video', mov: 'video', mkv: 'video',
+  };
+  if (byExt[ext]) return byExt[ext];
+  const m = (mime || '').toLowerCase();
+  if (m === 'application/pdf') return 'pdf';
+  if (m === 'application/epub+zip') return 'epub';
+  if (m === 'application/vnd.comicbook+zip' || m === 'application/x-cbz') return 'cbz';
+  if (m === 'text/markdown') return 'md';
+  if (m.startsWith('text/')) return 'txt';
+  if (m.startsWith('audio/')) return 'audio';
+  if (m.startsWith('video/')) return 'video';
+  return null;
+}
+
+// The content-type to send to S3 for a book's bytes. Parameterizes the formerly
+// hardcoded 'application/pdf' in dbPut/cachePdf. PDF books -> 'application/pdf'.
+function mimeFor(format: DocFormat, fileName: string): string {
+  switch (format) {
+    case 'pdf': return 'application/pdf';
+    case 'cbz': return 'application/vnd.comicbook+zip';
+    case 'epub': return 'application/epub+zip';
+    case 'txt': return 'text/plain; charset=utf-8';
+    case 'md': return 'text/markdown; charset=utf-8';
+    case 'note': return 'text/markdown; charset=utf-8';
+    case 'audio':
+    case 'video': {
+      const ext = (fileName.split('.').pop() || '').toLowerCase();
+      const map: Record<string, string> = {
+        mp3: 'audio/mpeg', m4a: 'audio/mp4', m4b: 'audio/mp4', aac: 'audio/aac',
+        ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg', wav: 'audio/wav', flac: 'audio/flac',
+        mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', mkv: 'video/x-matroska',
+      };
+      return map[ext] || (format === 'audio' ? 'audio/mpeg' : 'video/mp4');
+    }
+  }
+}
+
 function pct(b: Book): number {
   if (b.numPages <= 1) return b.currentPage >= b.numPages ? 100 : 0;
   return Math.round(((b.currentPage - 1) / (b.numPages - 1)) * 100);
@@ -741,40 +1053,174 @@ async function renderCover(doc: any): Promise<string | null> {
     return c.toDataURL('image/jpeg', 0.82);
   } catch { return null; }
 }
-async function ingest(file: File | { name: string; buf: ArrayBuffer }): Promise<Book | null> {
+// A 320px-tall JPEG cover from an image element (the CBZ first page), mirroring
+// renderCover's dataURL approach but sourced from a decoded <img> not a PDF page.
+function renderImageCover(img: HTMLImageElement): string | null {
   try {
-    const name = (file as any).name as string;
+    const iw = img.naturalWidth || 1, ih = img.naturalHeight || 1;
+    const target = 320;
+    const scale = target / ih;
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.floor(iw * scale));
+    c.height = Math.max(1, Math.floor(ih * scale));
+    c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.82);
+  } catch { return null; }
+}
+
+// PDF ingest: parse locally, lift Title/Author, render a cover, upload bytes.
+async function ingestPdf(name: string, buf: ArrayBuffer): Promise<Book> {
+  const doc = await loadDoc(buf);
+  let title = prettifyName(name), author = '';
+  try {
+    const meta = await doc.getMetadata();
+    const info = meta && meta.info ? meta.info : {};
+    if (info.Title && String(info.Title).trim()) title = String(info.Title).trim();
+    if (info.Author && String(info.Author).trim()) author = String(info.Author).trim();
+  } catch { /* ignore */ }
+  const cover = await renderCover(doc);
+  return {
+    id: uid(), title, author, fileName: name, data: buf,
+    numPages: doc.numPages, currentPage: 1, cover,
+    addedAt: Date.now(), lastReadAt: 0, format: 'pdf',
+  };
+}
+
+// CBZ ingest: unzip enough to count pages and render a cover from the first image.
+async function ingestCbz(name: string, buf: ArrayBuffer): Promise<Book> {
+  const pages = await unzipCbz(buf);
+  if (!pages.length) throw new Error('no images in archive');
+  let cover: string | null = null;
+  try {
+    const first = await imageFromBytes(pages[0].data, imageMimeFor(pages[0].name));
+    cover = renderImageCover(first);
+  } catch { /* cover is best-effort */ }
+  return {
+    id: uid(), title: prettifyName(name.replace(/\.cbz$/i, '')), author: '', fileName: name, data: buf,
+    numPages: pages.length, currentPage: 1, cover,
+    addedAt: Date.now(), lastReadAt: 0, format: 'cbz',
+  };
+}
+
+// EPUB ingest: open with epub.js to lift Title/Author from the OPF metadata and
+// a best-effort cover from coverUrl(). numPages isn't meaningful for reflow → 1.
+// Position starts at the book's beginning (progress unset); the bytes are
+// uploaded with application/epub+zip and cached locally like a PDF.
+async function ingestEpub(name: string, buf: ArrayBuffer): Promise<Book> {
+  const ePub = await loadEpubLib();
+  let title = prettifyName(name.replace(/\.epub$/i, '')), author = '';
+  let cover: string | null = null;
+  let epubBook: any = null;
+  try {
+    epubBook = ePub(buf.slice(0));   // copy: epub.js/JSZip may retain the buffer
+    await epubBook.ready;
+    const meta = await epubBook.loaded.metadata;
+    if (meta?.title && String(meta.title).trim()) title = String(meta.title).trim();
+    if (meta?.creator && String(meta.creator).trim()) author = String(meta.creator).trim();
+    cover = await epubCover(epubBook);
+  } catch { /* metadata/cover are best-effort — keep the prettified name */ }
+  try { epubBook?.destroy?.(); } catch { /* ignore */ }
+  return {
+    id: uid(), title, author, fileName: name, data: buf,
+    numPages: 1, currentPage: 1, cover,
+    addedAt: Date.now(), lastReadAt: 0, format: 'epub',
+  };
+}
+
+// Best-effort EPUB cover: epub.js coverUrl() yields a blob URL for the OPF cover
+// image; decode it to an <img> and render a 320px-tall JPEG dataURL (same shape
+// as renderImageCover). Returns null if the book has no cover or decoding fails.
+async function epubCover(epubBook: any): Promise<string | null> {
+  try {
+    const url: string | null = await epubBook.coverUrl();
+    if (!url) return null;
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = () => reject(new Error('cover decode failed'));
+      im.src = url;
+    });
+    const out = renderImageCover(img);
+    try { URL.revokeObjectURL(url); } catch { /* not an object URL */ }
+    return out;
+  } catch { return null; }
+}
+
+// Text/Markdown ingest: a single-"page" scroll doc; for markdown, derive the
+// title from the first H1 if present. No cover (a generated text cover renders).
+function ingestText(name: string, buf: ArrayBuffer, format: 'txt' | 'md'): Book {
+  const text = new TextDecoder('utf-8').decode(buf);
+  let title = prettifyName(name.replace(/\.(txt|md|markdown)$/i, ''));
+  if (format === 'md') {
+    const h1 = text.split('\n').map(s => s.trim()).find(s => /^#\s+\S/.test(s));
+    if (h1) title = h1.replace(/^#\s+/, '').slice(0, 120);
+  }
+  return {
+    id: uid(), title, author: '', fileName: name, data: buf,
+    numPages: 1, currentPage: 1, cover: null,
+    addedAt: Date.now(), lastReadAt: 0, format,
+  };
+}
+
+// Audio/Video ingest: no local parse, no cover (the generated text cover renders).
+// The bytes are uploaded to S3 with the file's real MIME so range-request
+// playback works; playback is online-only (the bytes are never cached locally).
+function ingestMedia(name: string, format: 'audio' | 'video', mime?: string): Book {
+  return {
+    id: uid(), title: prettifyName(name.replace(/\.[^.]+$/, '')), author: '',
+    fileName: name, data: new ArrayBuffer(0),
+    numPages: 1, currentPage: 1, cover: null,
+    addedAt: Date.now(), lastReadAt: 0, format,
+    // `mime` is carried via the file's type; mimeFor() also recovers it from the
+    // extension, so we don't need to stash it on the book.
+  };
+}
+
+async function ingest(file: File | { name: string; buf: ArrayBuffer; type?: string }): Promise<Book | null> {
+  const name = (file as any).name as string;
+  try {
     const buf = (file as any).buf
       ? (file as any).buf as ArrayBuffer
       : await (file as File).arrayBuffer();
-    const doc = await loadDoc(buf);
-    let title = prettifyName(name), author = '';
-    try {
-      const meta = await doc.getMetadata();
-      const info = meta && meta.info ? meta.info : {};
-      if (info.Title && String(info.Title).trim()) title = String(info.Title).trim();
-      if (info.Author && String(info.Author).trim()) author = String(info.Author).trim();
-    } catch { /* ignore */ }
-    const cover = await renderCover(doc);
-    const book: Book = {
-      id: uid(), title, author, fileName: name, data: buf,
-      numPages: doc.numPages, currentPage: 1, cover,
-      addedAt: Date.now(), lastReadAt: 0,
-    };
+    const mime = (file as any).type as string | undefined;
+    const format = detectFormat(name, mime) ?? 'pdf';
+    let book: Book;
+    switch (format) {
+      case 'cbz': book = await ingestCbz(name, buf); break;
+      case 'epub': book = await ingestEpub(name, buf); break;
+      case 'txt': book = ingestText(name, buf, 'txt'); break;
+      case 'md': book = ingestText(name, buf, 'md'); break;
+      case 'audio': book = ingestMedia(name, 'audio', mime); break;
+      case 'video': book = ingestMedia(name, 'video', mime); break;
+      default: book = await ingestPdf(name, buf); break;   // pdf
+    }
+    // Upload the bytes (dbPut sends the format-appropriate content-type). For
+    // media we attach the bytes only for this upload, then make the offline copy
+    // for the byte-backed formats. Audio/video are online-only — they must NEVER
+    // go through cachePdf / the PDF LRU (large files would blow the quota guard).
+    book.data = buf;
     await dbPut(book);
-    cachePdf(book.id, buf);   // bytes are already in hand — make it offline-ready
+    if (format !== 'audio' && format !== 'video') {
+      cachePdf(book.id, buf, mimeFor(book.format ?? 'pdf', name));   // bytes in hand — make it offline-ready
+    }
+    book.data = new ArrayBuffer(0);   // drop the in-memory bytes; nothing else needs them
     return book;
   } catch (e) {
     console.error('ingest failed', e);
     if (e instanceof ApiNetworkError) toast(t('toast.offlineAdd'));
-    else toast(t('toast.cantRead', { name: (file as any).name }));
+    else toast(t('toast.cantRead', { name }));
     return null;
   }
 }
 
 async function addFiles(files: FileList | File[]): Promise<void> {
-  const arr = Array.from(files).filter(f => /pdf$/i.test(f.name) || f.type === 'application/pdf');
-  if (!arr.length) { toast(t('toast.pdfOnly')); return; }
+  // Accept any format ingest understands this phase; reject the rest with a hint.
+  const SUPPORTED = new Set<DocFormat>(['pdf', 'cbz', 'epub', 'txt', 'md', 'audio', 'video']);
+  const arr = Array.from(files).filter(f => {
+    const fmt = detectFormat(f.name, f.type);
+    return fmt != null && SUPPORTED.has(fmt);
+  });
+  if (!arr.length) { toast(t('toast.unsupported')); return; }
   toast(tn('toast.shelving', arr.length));
   for (const f of arr) {
     const b = await ingest(f);
@@ -791,10 +1237,27 @@ async function addFiles(files: FileList | File[]): Promise<void> {
 const ICON = {
   play: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-14 9V3z"/></svg>',
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V6"/></svg>',
+  note: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>',
 };
+
+// MD / TXT corner badge for note covers.
+function noteBadge(b: Book): string {
+  const kind = b.noteFormat === 'markdown' ? 'MD' : 'TXT';
+  return `<span class="note-badge">${kind}</span>`;
+}
 
 function coverMarkup(b: Book): string {
   const offdot = offlineIds.has(b.id) ? `<span class="offdot" title="${t('lib.offlineDot')}"></span>` : '';
+  if (isNote(b)) {
+    const title = b.title || t('note.untitled');
+    return `<div class="cover note-cover"><span class="spine"></span>${offdot}${noteBadge(b)}
+      <div class="gen-cover">
+        <div class="gt">${escapeHtml(title)}</div>
+        <div class="grule"></div>
+        <div class="ga">${t('note.kind')}</div>
+      </div>` +
+      `<button class="del" data-del="${b.id}" title="${t('note.delete')}">${ICON.trash}</button></div>`;
+  }
   if (b.cover) {
     return `<div class="cover" style="background-image:url('${b.cover}')"><span class="spine"></span>${offdot}` +
       (b.lastReadAt ? `<span class="pct">${pct(b)}%</span>` : '') +
@@ -833,6 +1296,17 @@ function renderGrid(list: Book[]): string {
 }
 function renderList(list: Book[]): string {
   const rows = list.map(b => {
+    if (isNote(b)) {
+      const title = b.title || t('note.untitled');
+      return `<div class="row" data-open="${b.id}">
+        <div class="rcv note-cover"><div class="gen-cover"><div class="gt">${escapeHtml(title)}</div></div>${noteBadge(b)}</div>
+        <div class="rmeta"><div class="rt">${escapeHtml(title)}</div><div class="ra">${t('note.kind')}</div></div>
+        <div class="rprog"></div>
+        <div class="rwhen">${relTime(b.lastReadAt)}</div>
+        <button class="rresume" data-open="${b.id}">${ICON.note}${t('note.edit')}</button>
+        <button class="del rmenu" data-del="${b.id}" title="${t('note.delete')}">${ICON.trash}</button>
+      </div>`;
+    }
     const cv = b.cover
       ? `<div class="rcv" style="background-image:url('${b.cover}')"></div>`
       : `<div class="rcv"><div class="gen-cover"><div class="gt">${escapeHtml(b.title)}</div></div></div>`;
@@ -850,7 +1324,7 @@ function renderList(list: Book[]): string {
 
 function renderContinue(): void {
   const c = el('continue');
-  const read = books.filter(b => b.lastReadAt > 0).sort((a, b) => b.lastReadAt - a.lastReadAt);
+  const read = books.filter(b => !isNote(b) && b.lastReadAt > 0).sort((a, b) => b.lastReadAt - a.lastReadAt);
   if (!read.length) { c.classList.remove('show'); return; }
   const b = read[0];
   c.classList.add('show');
@@ -879,10 +1353,15 @@ function renderLibrary(): void {
       <div class="ic">❦</div>
       <h3>${t('lib.emptyTitle')}</h3>
       <p>${t('lib.emptyBody')}</p>
-      <button class="mast-btn brass" id="empty-add" style="margin:0 auto">${t('lib.emptyAdd')}</button>
+      <div class="empty-actions">
+        <button class="mast-btn brass" id="empty-add">${t('lib.emptyAdd')}</button>
+        <button class="mast-btn" id="empty-note">${t('note.emptyAdd')}</button>
+      </div>
     </div>`;
     const ea = document.getElementById('empty-add');
     if (ea) ea.addEventListener('click', () => el('file-input').click());
+    const en = document.getElementById('empty-note');
+    if (en) en.addEventListener('click', () => createNote());
     return;
   }
   // newest-first base order
@@ -899,7 +1378,12 @@ function wireLibrary(): void {
     const del = t.closest('[data-del]') as HTMLElement | null;
     if (del) { e.preventDefault(); e.stopPropagation(); confirmDelete(del.dataset.del!); return; }
     const open = t.closest('[data-open]') as HTMLElement | null;
-    if (open) { e.preventDefault(); openBook(open.dataset.open!); }
+    if (open) {
+      e.preventDefault();
+      const id = open.dataset.open!;
+      const it = books.find(x => x.id === id);
+      if (it && isNote(it)) openNote(id); else openBook(id);
+    }
   });
   el('continue').addEventListener('click', (e) => {
     e.preventDefault();
@@ -937,9 +1421,609 @@ function wireViewSwitch(): void {
 // ============================================================
 //  READER
 // ============================================================
+
+// ---------- document adapters ----------
+
+// Shared canvas page painter for the paged/canvas formats (PDF + CBZ). Holds the
+// viewport/dpr/sizing + `.rpage` DOM-build math that used to live inline in
+// PdfAdapter.render(): comfort cap 860, sidePad, dpr cap 2, the clip overlay
+// call. `draw(c2d, cssScale, dpr)` paints one page onto the canvas at device
+// pixels (PDF -> page.render; CBZ -> drawImage). `intrinsic{W,H}` are the page's
+// natural pixel dimensions, used for the aspect ratio and the CSS->intrinsic
+// scale. Returns the painted canvas + its CSS box; the caller may add a text
+// layer afterwards. Returns null if superseded mid-flight (token changed).
+async function paintCanvasPage(
+  draw: (c2d: CanvasRenderingContext2D, cssScale: number, dpr: number) => Promise<void> | void,
+  intrinsicW: number,
+  intrinsicH: number,
+  ctx: RenderCtx,
+  keepScroll: boolean,
+): Promise<{ canvas: HTMLCanvasElement; wrap: HTMLElement; cssW: number; cssH: number; cssScale: number } | null> {
+  const token = ctx.token;
+  const avail = stageWidth();
+  const sidePad = avail < 700 ? 36 : 64; // room for column padding + scrollbar
+  const cap = ctx.width === 'comfort' ? 860 : Infinity;
+  const targetCSS = Math.floor(Math.min(avail - sidePad, cap) * ctx.zoom);
+  const cssScale = targetCSS / intrinsicW;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const cssW = targetCSS;
+  const cssH = Math.round(targetCSS * (intrinsicH / intrinsicW));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.floor(intrinsicW * cssScale * dpr);
+  canvas.height = Math.floor(intrinsicH * cssScale * dpr);
+  canvas.style.width = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+  await draw(canvas.getContext('2d')!, cssScale, dpr);
+  if (token !== reader.renderToken) return null; // superseded
+
+  const col = ctx.col;
+  col.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'rpage';
+  wrap.appendChild(canvas);
+  reader.cssW = cssW; reader.cssH = cssH; reader.cssScale = cssScale;
+  ctx.drawClipOverlay(wrap, cssW, cssH);
+  col.appendChild(wrap);
+  clearSelToolbar();
+  if (!keepScroll) ctx.stage.scrollTop = 0;
+  return { canvas, wrap, cssW, cssH, cssScale };
+}
+
+// The DocAdapter seam. PdfAdapter is the only implementation today; its render()
+// holds the exact canvas pipeline the old renderPage() ran inline, so the PDF
+// experience is unchanged. Future formats (cbz/epub/txt/...) add their own
+// adapters behind makeAdapter() without touching the reader shell.
+class PdfAdapter implements DocAdapter {
+  readonly format: DocFormat = 'pdf';
+  readonly mode: DocMode = 'canvas';
+  readonly caps: DocCaps = {
+    paged: true,
+    canvasPages: true,
+    textSelectable: true,
+    regionClippable: true,
+    timeMedia: false,
+    reflowable: false,
+    zoomable: true,
+  };
+  private doc: any;
+  private canvas: HTMLCanvasElement | null = null;
+
+  constructor(doc: any) { this.doc = doc; }
+
+  get total(): number { return this.doc.numPages; }
+
+  // The PDF canvas pipeline, now expressed through paintCanvasPage(). The draw
+  // fn builds the pdf.js viewport at device pixels and renders into the canvas;
+  // paintCanvasPage owns the sizing/DOM math (identical to the former inline
+  // body). The selectable text layer is added afterwards. Staleness is checked
+  // against ctx.token (the reader's renderToken at the time renderAt was called).
+  async render(pos: DocPos, ctx: RenderCtx, keepScroll: boolean): Promise<void> {
+    const n = pos.page!;
+    const token = ctx.token;
+    const page = await this.doc.getPage(n);
+    if (token !== reader.renderToken) return; // superseded
+
+    const v1 = page.getViewport({ scale: 1 });
+    const out = await paintCanvasPage(
+      async (c2d, cssScale, dpr) => {
+        const vp = page.getViewport({ scale: cssScale * dpr });
+        await page.render({ canvasContext: c2d, viewport: vp }).promise;
+      },
+      v1.width, v1.height, ctx, keepScroll,
+    );
+    if (!out) return; // superseded
+    this.canvas = out.canvas;
+    renderTextLayerFor(page, out.wrap, out.cssScale, token);
+  }
+
+  toBarPercent(pos: DocPos): number {
+    const n = pos.page ?? 1;
+    return this.total <= 1 ? 100 : ((n - 1) / (this.total - 1)) * 100;
+  }
+
+  posLabel(pos: DocPos): { current: string; total: string } {
+    return { current: String(pos.page ?? 1), total: String(this.total) };
+  }
+
+  currentCanvas(): HTMLCanvasElement | null { return this.canvas; }
+
+  destroy(): void { this.doc = null; this.canvas = null; }
+}
+
+// Natural-order comparator for archive entry names so page 2 sorts before
+// page 10 (string sort would not). Falls back to locale compare for the rest.
+function naturalCompare(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+}
+
+const CBZ_IMAGE_RE = /\.(jpe?g|png|gif|webp|avif|bmp)$/i;
+
+// Decode one image (raw bytes) to an HTMLImageElement via a blob URL, revoking
+// the URL once it loads or fails. The image content-type only matters for the
+// blob; the extension-derived type keeps Safari happy for some formats.
+function imageFromBytes(bytes: Uint8Array, mime: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime }));
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('image decode failed')); };
+    img.src = url;
+  });
+}
+function imageMimeFor(name: string): string {
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  const map: Record<string, string> = {
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+    webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp',
+  };
+  return map[ext] || 'image/jpeg';
+}
+
+// Unzip a CBZ (comic archive) and return its image page entries in reading
+// order. Uses the lazily-loaded fflate. Entry bytes are kept in memory; pages
+// are decoded to <img> on demand at render time.
+async function unzipCbz(bytes: ArrayBuffer): Promise<{ name: string; data: Uint8Array }[]> {
+  await loadVendor('/vendor/fflate.min.js');
+  const fflate: any = (window as any).fflate;
+  const files = fflate.unzipSync(new Uint8Array(bytes)) as Record<string, Uint8Array>;
+  return Object.keys(files)
+    .filter(n => CBZ_IMAGE_RE.test(n) && files[n] && files[n].length > 0)
+    .sort(naturalCompare)
+    .map(n => ({ name: n, data: files[n] }));
+}
+
+// A CBZ comic: a zip of images, each a page painted to a canvas (so region
+// clipping captures it 1:1). No selectable text layer.
+class CbzAdapter implements DocAdapter {
+  readonly format: DocFormat = 'cbz';
+  readonly mode: DocMode = 'canvas';
+  readonly caps: DocCaps = {
+    paged: true,
+    canvasPages: true,
+    textSelectable: false,
+    regionClippable: true,
+    timeMedia: false,
+    reflowable: false,
+    zoomable: true,
+  };
+  private pages: { name: string; data: Uint8Array }[];
+  private canvas: HTMLCanvasElement | null = null;
+
+  constructor(pages: { name: string; data: Uint8Array }[]) { this.pages = pages; }
+
+  get total(): number { return this.pages.length; }
+
+  async render(pos: DocPos, ctx: RenderCtx, keepScroll: boolean): Promise<void> {
+    const n = pos.page!;
+    const token = ctx.token;
+    const entry = this.pages[n - 1];
+    if (!entry) return;
+    const img = await imageFromBytes(entry.data, imageMimeFor(entry.name));
+    if (token !== reader.renderToken) return; // superseded
+    const out = await paintCanvasPage(
+      (c2d, _cssScale, _dpr) => {
+        c2d.imageSmoothingQuality = 'high';
+        c2d.drawImage(img, 0, 0, c2d.canvas.width, c2d.canvas.height);
+      },
+      img.naturalWidth || 1, img.naturalHeight || 1, ctx, keepScroll,
+    );
+    if (!out) return; // superseded
+    this.canvas = out.canvas;
+  }
+
+  toBarPercent(pos: DocPos): number {
+    const n = pos.page ?? 1;
+    return this.total <= 1 ? 100 : ((n - 1) / (this.total - 1)) * 100;
+  }
+  posLabel(pos: DocPos): { current: string; total: string } {
+    return { current: String(pos.page ?? 1), total: String(this.total) };
+  }
+  currentCanvas(): HTMLCanvasElement | null { return this.canvas; }
+  destroy(): void { this.pages = []; this.canvas = null; }
+}
+
+// A plain-text or Markdown document rendered as one scrollable column. No
+// canvas, no paging: position is a 0..1 scroll fraction persisted on scroll.
+class ScrollTextAdapter implements DocAdapter {
+  readonly format: DocFormat;
+  readonly mode: DocMode = 'scroll';
+  readonly caps: DocCaps = {
+    paged: false,
+    canvasPages: false,
+    textSelectable: true,
+    regionClippable: false,
+    timeMedia: false,
+    reflowable: false,
+    zoomable: false,
+  };
+  readonly total = 1;
+  private text: string;
+  private isMd: boolean;
+  private scrollHandler: (() => void) | null = null;
+  private scrollTimer = 0 as any;
+
+  constructor(text: string, format: DocFormat) {
+    this.text = text;
+    this.format = format;
+    this.isMd = format === 'md';
+  }
+
+  async render(pos: DocPos, ctx: RenderCtx, _keepScroll: boolean): Promise<void> {
+    const col = ctx.col;
+    col.innerHTML = '';
+    const container = document.createElement('div');
+    if (this.isMd) {
+      container.className = 'doc-scroll markdown-body';
+      container.innerHTML = renderMarkdown(this.text);
+    } else {
+      container.className = 'doc-scroll doc-plain';
+      const pre = document.createElement('pre');
+      pre.textContent = this.text;
+      container.appendChild(pre);
+    }
+    col.appendChild(container);
+
+    // Restore the saved scroll fraction after layout settles.
+    const stage = ctx.stage;
+    const frac = Math.min(Math.max(pos.fraction ?? 0, 0), 1);
+    requestAnimationFrame(() => {
+      const max = stage.scrollHeight - stage.clientHeight;
+      stage.scrollTop = max > 0 ? frac * max : 0;
+      this.attachScroll(stage);
+    });
+  }
+
+  // Debounced scroll listener: writes the fraction back through the reader's
+  // persist path. Re-attached on each render; detached in destroy().
+  private attachScroll(stage: HTMLElement): void {
+    this.detachScroll(stage);
+    this.scrollHandler = () => {
+      window.clearTimeout(this.scrollTimer);
+      this.scrollTimer = window.setTimeout(() => {
+        const max = stage.scrollHeight - stage.clientHeight;
+        const f = max > 0 ? Math.min(Math.max(stage.scrollTop / max, 0), 1) : 0;
+        setReaderPos({ fraction: f });
+        persistPos();
+      }, 280);
+    };
+    stage.addEventListener('scroll', this.scrollHandler, { passive: true });
+  }
+  private detachScroll(stage: HTMLElement): void {
+    if (this.scrollHandler) stage.removeEventListener('scroll', this.scrollHandler);
+    this.scrollHandler = null;
+    window.clearTimeout(this.scrollTimer);
+  }
+
+  toBarPercent(pos: DocPos): number {
+    return Math.round(Math.min(Math.max(pos.fraction ?? 0, 0), 1) * 100);
+  }
+  posLabel(pos: DocPos): { current: string; total: string } {
+    const p = Math.round(Math.min(Math.max(pos.fraction ?? 0, 0), 1) * 100);
+    return { current: p + '%', total: '' };
+  }
+  currentCanvas(): HTMLCanvasElement | null { return null; }
+  destroy(): void {
+    try { this.detachScroll(el('r-stage')); } catch { /* reader gone */ }
+  }
+}
+
+// mm:ss for media position labels (clamps NaN/negatives to 0:00).
+function fmtClock(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) sec = 0;
+  const s = Math.floor(sec % 60);
+  const m = Math.floor(sec / 60);
+  return m + ':' + (s < 10 ? '0' : '') + s;
+}
+
+// Audio / video, online-only. Streams from S3 via a fresh presigned URL rather
+// than downloading bytes (so it never goes through dbGet / the PDF LRU). A
+// native <audio>/<video> element handles playback and seeking; position is the
+// element's currentTime, persisted as {kind:'seconds'} on a throttled timeupdate
+// (and on pause/ended/unload). total=1, no paging/zoom/capture/text.
+class MediaAdapter implements DocAdapter {
+  readonly format: DocFormat;
+  readonly mode: DocMode = 'media';
+  readonly caps: DocCaps = {
+    paged: false,
+    canvasPages: false,
+    textSelectable: false,
+    regionClippable: false,
+    timeMedia: true,
+    reflowable: false,
+    zoomable: false,
+  };
+  readonly total = 1;
+  private urlFor: () => Promise<string>;
+  private media: HTMLMediaElement | null = null;
+  private duration = 0;
+  private startSeconds = 0;
+  private lastSaved = 0;
+  private onMeta = () => {};
+  private onTime = () => {};
+  private onError = () => {};
+  private onPause = () => {};
+  private onUnload = () => {};
+
+  constructor(book: Book, urlFor: () => Promise<string>) {
+    this.format = book.format === 'video' ? 'video' : 'audio';
+    this.urlFor = urlFor;
+  }
+
+  async render(pos: DocPos, ctx: RenderCtx, _keepScroll: boolean): Promise<void> {
+    const token = ctx.token;
+    this.startSeconds = Math.max(0, pos.seconds ?? 0);
+    const url = await this.urlFor();
+    if (token !== reader.renderToken) return; // superseded (closed / re-opened)
+
+    const col = ctx.col;
+    col.innerHTML = '';
+    const stage = document.createElement('div');
+    stage.className = 'media-stage ' + (this.format === 'video' ? 'is-video' : 'is-audio');
+
+    const elm = (this.format === 'video'
+      ? document.createElement('video')
+      : document.createElement('audio')) as HTMLMediaElement;
+    elm.controls = true;
+    elm.preload = 'metadata';
+    if (this.format === 'video') {
+      (elm as HTMLVideoElement).playsInline = true;
+      elm.setAttribute('playsinline', '');
+    }
+    elm.src = url;
+    this.media = elm;
+
+    // Restore the saved position once the browser knows the duration/seekable
+    // range; only seek when there's something to restore.
+    this.onMeta = () => {
+      this.duration = Number.isFinite(elm.duration) ? elm.duration : 0;
+      if (this.startSeconds > 0 && this.startSeconds < (this.duration || Infinity)) {
+        try { elm.currentTime = this.startSeconds; } catch { /* not seekable yet */ }
+      }
+      updateReaderChrome();
+    };
+    // Throttle hard: timeupdate fires ~4x/sec; persist at most every 4s.
+    this.onTime = () => {
+      const now = elm.currentTime;
+      setReaderPos({ seconds: now });
+      el('r-progress-bar').style.width = this.toBarPercent(reader.pos) + '%';
+      if (Math.abs(now - this.lastSaved) >= 4) { this.lastSaved = now; this.flush(); }
+    };
+    this.onPause = () => { this.lastSaved = elm.currentTime; this.flush(); };
+    this.onUnload = () => { if (this.media) { setReaderPos({ seconds: this.media.currentTime }); persistPos(); } };
+    // On a stream error (commonly an expired presigned URL), re-fetch a fresh
+    // URL and resume from the last known position.
+    this.onError = () => {
+      const at = elm.currentTime || this.startSeconds;
+      this.urlFor().then((fresh) => {
+        if (!this.media) return;
+        this.startSeconds = at;
+        this.media.src = fresh;
+        this.media.load();
+      }).catch(() => { toast(t('toast.mediaError')); });
+    };
+
+    elm.addEventListener('loadedmetadata', this.onMeta);
+    elm.addEventListener('timeupdate', this.onTime);
+    elm.addEventListener('pause', this.onPause);
+    elm.addEventListener('ended', this.onPause);
+    elm.addEventListener('error', this.onError);
+    window.addEventListener('pagehide', this.onUnload);
+
+    stage.appendChild(elm);
+    col.appendChild(stage);
+  }
+
+  private flush(): void {
+    if (!this.media) return;
+    setReaderPos({ seconds: this.media.currentTime });
+    persistPos();
+  }
+
+  toBarPercent(pos: DocPos): number {
+    const d = this.duration || (this.media && Number.isFinite(this.media.duration) ? this.media.duration : 0);
+    if (!d) return 0;
+    return Math.min(100, Math.max(0, ((pos.seconds ?? 0) / d) * 100));
+  }
+  posLabel(pos: DocPos): { current: string; total: string } {
+    const d = this.duration || (this.media && Number.isFinite(this.media.duration) ? this.media.duration : 0);
+    return { current: fmtClock(pos.seconds ?? 0), total: d ? fmtClock(d) : '' };
+  }
+  currentCanvas(): HTMLCanvasElement | null { return null; }
+  destroy(): void {
+    const m = this.media;
+    if (m) {
+      try {
+        m.removeEventListener('loadedmetadata', this.onMeta);
+        m.removeEventListener('timeupdate', this.onTime);
+        m.removeEventListener('pause', this.onPause);
+        m.removeEventListener('ended', this.onPause);
+        m.removeEventListener('error', this.onError);
+        m.pause();
+        m.removeAttribute('src');
+        m.src = '';
+        m.load();   // stop buffering / release the network connection
+      } catch { /* element already detached */ }
+    }
+    window.removeEventListener('pagehide', this.onUnload);
+    this.media = null;
+  }
+}
+
+// Lazily load epub.js (and its JSZip dependency, which the UMD build reads off
+// window.JSZip at evaluation time — so jszip MUST be injected first). Both are
+// vendored, not precached; the VENDOR_CACHE rule keeps them offline-ready after
+// first use. Returns window.ePub once available.
+async function loadEpubLib(): Promise<any> {
+  await loadVendor('/vendor/jszip.min.js');   // must resolve before epub.min.js evaluates
+  await loadVendor('/vendor/epub.min.js');
+  return (window as any).ePub;
+}
+
+// An EPUB: epub.js renders a reflowable, paginated single column into an iframe.
+// No canvas, no clean page count: position is a CFI persisted on relocation and
+// restored on open. Text selection lives inside the iframe, so it's surfaced via
+// rendition.on('selected') into the existing share-text card. Locations (for the
+// progress percentage) are generated lazily in the background after open.
+class EpubAdapter implements DocAdapter {
+  readonly format: DocFormat = 'epub';
+  readonly mode: DocMode = 'reflow';
+  readonly caps: DocCaps = {
+    paged: false,            // no numeric page input — CFI-positioned
+    canvasPages: false,      // no canvas → region capture + text-layer code inert
+    textSelectable: true,    // via rendition 'selected', surfaced as a share card
+    regionClippable: false,  // no persisted highlights for epub
+    timeMedia: false,
+    reflowable: true,
+    zoomable: false,
+  };
+  readonly total = 1;        // reflow has no clean page count; nav is prev/next
+  private epub: any;
+  private rendition: any = null;
+  private stage: HTMLElement | null = null;
+  private displayed = false;
+  private cfi: string | null;
+  private percent = 0;
+  private locationsReady = false;
+  private saveTimer = 0 as any;
+  private onRelocated = (loc: any) => this.handleRelocated(loc);
+  private onSelected = (cfiRange: string, contents: any) => this.handleSelected(cfiRange, contents);
+
+  constructor(epub: any, startCfi: string | null) {
+    this.epub = epub;
+    this.cfi = startCfi;
+  }
+
+  async render(pos: DocPos, ctx: RenderCtx, _keepScroll: boolean): Promise<void> {
+    const token = ctx.token;
+    await this.epub.ready;
+    if (token !== reader.renderToken) return; // superseded (closed / re-opened)
+
+    if (!this.rendition) {
+      const col = ctx.col;
+      col.innerHTML = '';
+      const stage = document.createElement('div');
+      stage.className = 'epub-stage';
+      const viewEl = document.createElement('div');
+      viewEl.id = 'epub-view';
+      viewEl.className = 'epub-view';
+      stage.appendChild(viewEl);
+      col.appendChild(stage);
+      this.stage = stage;
+
+      this.rendition = this.epub.renderTo(viewEl, {
+        width: '100%',
+        height: '100%',
+        flow: 'paginated',
+        spread: 'none',
+        allowScriptedContent: false,
+      });
+      this.rendition.on('relocated', this.onRelocated);
+      this.rendition.on('selected', this.onSelected);
+      await this.rendition.display(pos.cfi || this.cfi || undefined);
+      this.displayed = true;
+      this.generateLocations();
+    } else {
+      // A re-render (e.g. width/resize change): just re-display the current spot.
+      await this.rendition.display(this.cfi || pos.cfi || undefined);
+    }
+  }
+
+  // Generate locations in the background so the progress bar can show a real
+  // percentage. Best-effort and non-blocking — page turns work without it.
+  private generateLocations(): void {
+    try {
+      this.epub.locations.generate(1024).then(() => {
+        this.locationsReady = true;
+        if (this.cfi) {
+          this.percent = this.safePercent(this.cfi);
+          el('r-progress-bar').style.width = (this.percent * 100) + '%';
+        }
+      }).catch(() => {});
+    } catch { /* locations are best-effort */ }
+  }
+
+  private safePercent(cfi: string): number {
+    try {
+      const p = this.epub.locations.percentageFromCfi(cfi);
+      return Number.isFinite(p) ? Math.min(Math.max(p, 0), 1) : this.percent;
+    } catch { return this.percent; }
+  }
+
+  private handleRelocated(loc: any): void {
+    const cfi = loc?.start?.cfi;
+    if (!cfi) return;
+    this.cfi = cfi;
+    if (this.locationsReady) this.percent = this.safePercent(cfi);
+    else if (typeof loc?.start?.percentage === 'number') this.percent = Math.min(Math.max(loc.start.percentage, 0), 1);
+    setReaderPos({ cfi });
+    updateReaderChrome();
+    // Coalesce: relocated fires on every page turn; debounce the persist.
+    window.clearTimeout(this.saveTimer);
+    this.saveTimer = window.setTimeout(() => persistPos(), 500);
+  }
+
+  // Iframe selections never reach the top document's selectionchange handler, so
+  // epub.js hands us the selected range here. Resolve it to a string and surface
+  // the existing Share toolbar (no rects → text-card share only).
+  private handleSelected(cfiRange: string, contents: any): void {
+    let text = '';
+    try { text = (contents?.window?.getSelection?.()?.toString() || '').trim(); } catch { /* cross-frame */ }
+    if (!text) return;
+    surfaceTextShare(text, cfiRange, contents);
+  }
+
+  next(): void { this.rendition?.next?.(); }
+  prev(): void { this.rendition?.prev?.(); }
+
+  toBarPercent(_pos: DocPos): number { return Math.round(this.percent * 100); }
+  posLabel(_pos: DocPos): { current: string; total: string } {
+    return { current: Math.round(this.percent * 100) + '%', total: '' };
+  }
+  currentCanvas(): HTMLCanvasElement | null { return null; }
+  destroy(): void {
+    window.clearTimeout(this.saveTimer);
+    try {
+      this.rendition?.off?.('relocated', this.onRelocated);
+      this.rendition?.off?.('selected', this.onSelected);
+      this.rendition?.destroy?.();
+    } catch { /* already torn down */ }
+    try { this.epub?.destroy?.(); } catch { /* ignore */ }
+    this.rendition = null; this.epub = null; this.stage = null;
+  }
+}
+
+// Build the right adapter for a book's format. Canvas/text formats parse `bytes`;
+// media formats stream from S3 and take a lazy presigned-URL getter instead
+// (openBook passes null bytes + urlFor for those — see makeAdapter call there).
+async function makeAdapter(book: Book, bytes: ArrayBuffer | null, urlFor?: () => Promise<string>): Promise<DocAdapter> {
+  const format = book.format ?? 'pdf';
+  switch (format) {
+    case 'pdf':
+      return new PdfAdapter(await loadDoc(bytes!));
+    case 'cbz':
+      return new CbzAdapter(await unzipCbz(bytes!));
+    case 'epub': {
+      const ePub = await loadEpubLib();
+      const epubBook = ePub(bytes!);   // ArrayBuffer ctor
+      const startCfi = book.progress?.kind === 'cfi' ? String(book.progress.value) : null;
+      return new EpubAdapter(epubBook, startCfi);
+    }
+    case 'txt':
+    case 'md':
+      return new ScrollTextAdapter(new TextDecoder('utf-8').decode(bytes!), format);
+    case 'audio':
+    case 'video':
+      return new MediaAdapter(book, urlFor ?? (() => presignedUrlFor(book.id)));
+    default:
+      throw new Error('Unsupported format: ' + format);
+  }
+}
+
 const reader = {
   book: null as Book | null,
-  doc: null as any,
+  adapter: null as DocAdapter | null,
+  pos: { page: 1 } as DocPos,
   page: 1,
   width: (localStorage.getItem(LS.width) as 'comfort' | 'full') || 'comfort',
   zoom: 1,
@@ -955,12 +2039,23 @@ const reader = {
   cssScale: 1,
 };
 
+// Set both the source-of-truth pos and the page mirror that the existing
+// capture/overlay/nav code reads. Always keep them in lockstep.
+function setReaderPos(pos: DocPos): void {
+  reader.pos = pos;
+  if (pos.page != null) reader.page = pos.page;
+}
+
 async function openBook(id: string): Promise<void> {
   const meta = books.find(x => x.id === id);
   if (!meta) { toast(t('toast.cantOpen')); return; }
   const b = meta as Book;
+  reader.adapter?.destroy();   // tear down any previous adapter (scroll listeners etc.)
+  reader.adapter = null;
   reader.book = b;
-  reader.page = Math.min(Math.max(1, b.currentPage || 1), b.numPages);
+  // Tentative paged position; for scroll formats it's replaced with a fraction
+  // once the adapter (and thus the mode) is known, just below.
+  setReaderPos({ page: Math.min(Math.max(1, b.currentPage || 1), b.numPages) });
   reader.zoom = 1;
   reader.clips = [];
   exitCapture();
@@ -973,13 +2068,46 @@ async function openBook(id: string): Promise<void> {
   document.body.style.overflow = 'hidden';
   el('r-loading').classList.remove('hidden');
   try {
-    const bytes = await dbGet(id);
-    if (!bytes) { toast(t('toast.cantLoad')); el('r-loading').classList.add('hidden'); return; }
-    reader.doc = await loadDoc(bytes);
+    // Media (audio/video) is online-only: it streams from S3 via a fresh
+    // presigned URL and must NOT download bytes (no dbGet / no PDF LRU). All
+    // other formats fetch their bytes here.
+    const fmt = b.format ?? 'pdf';
+    const isMedia = fmt === 'audio' || fmt === 'video';
+    let bytes: ArrayBuffer | null = null;
+    if (isMedia) {
+      reader.adapter = await makeAdapter(b, null, () => presignedUrlFor(id));
+    } else {
+      bytes = await dbGet(id);
+      if (!bytes) { toast(t('toast.cantLoad')); el('r-loading').classList.add('hidden'); return; }
+      reader.adapter = await makeAdapter(b, bytes);
+    }
+    // Scroll formats restore a 0..1 scroll fraction (stored generalized as
+    // book.progress) rather than a page; media restores a seconds offset;
+    // paged formats keep the page set above.
+    if (reader.adapter.mode === 'scroll') {
+      const stored = b.progress?.kind === 'fraction' ? Number(b.progress.value) : 0;
+      setReaderPos({ fraction: Number.isFinite(stored) ? stored : 0 });
+    } else if (reader.adapter.mode === 'media') {
+      const stored = b.progress?.kind === 'seconds' ? Number(b.progress.value) : 0;
+      setReaderPos({ seconds: Number.isFinite(stored) ? stored : 0 });
+    } else if (reader.adapter.mode === 'reflow') {
+      const stored = b.progress?.kind === 'cfi' ? String(b.progress.value) : '';
+      setReaderPos(stored ? { cfi: stored } : {});
+    }
+    // Gate reader chrome on the adapter's capabilities. For PDF every cap is on,
+    // so no class is added and the UI is unchanged.
+    const caps = reader.adapter.caps;
+    rd.classList.toggle('no-capture', !caps.regionClippable);
+    rd.classList.toggle('no-zoom', !caps.zoomable);
+    rd.classList.toggle('no-paged', !caps.paged);
+    rd.classList.toggle('text-share-only', !caps.textSelectable);
+    // Reflow (epub): no numeric pager, but the floating prev/next arrows stay
+    // (CSS re-shows .rnav under .is-reflow even though .no-paged is set).
+    rd.classList.toggle('is-reflow', reader.adapter.mode === 'reflow');
     // An offline clip load is fine (empty); a real 401 must not leave the
     // reader open behind the login screen.
     reader.clips = await clipsAll(id).catch(e => { if (e instanceof ApiAuthError) throw e; return []; });
-    await renderPage(reader.page, false);
+    await renderAt(reader.pos, false);
   } catch (e) {
     console.error(e);
     if (e instanceof ApiAuthError) { closeReader(); return; }
@@ -994,7 +2122,8 @@ function closeReader(): void {
   exitCapture();
   el('reader').classList.remove('show');
   document.body.style.overflow = '';
-  reader.doc = null; reader.book = null;
+  reader.adapter?.destroy();
+  reader.adapter = null; reader.book = null;
   reader.clips = [];
   renderLibrary();
 }
@@ -1004,47 +2133,28 @@ function stageWidth(): number {
   return stage.clientWidth;
 }
 
-async function renderPage(n: number, keepScroll: boolean): Promise<void> {
-  if (!reader.doc || !reader.book) return;
-  n = Math.min(Math.max(1, n), reader.book.numPages);
-  reader.page = n;
+// Thin coordinator: clamp + set position, bump the render token, hand off to the
+// adapter, then (if not superseded) refresh chrome and persist. The PDF canvas
+// pipeline lives in PdfAdapter.render(); this is the only render entry point.
+async function renderAt(pos: DocPos, keepScroll: boolean): Promise<void> {
+  if (!reader.adapter || !reader.book) return;
+  if (pos.page != null) {
+    pos = { ...pos, page: Math.min(Math.max(1, pos.page), reader.book.numPages) };
+  }
+  setReaderPos(pos);
   const token = ++reader.renderToken;
-  const page = await reader.doc.getPage(n);
+  const ctx: RenderCtx = {
+    col: el('r-col'),
+    stage: el('r-stage'),
+    width: reader.width,
+    zoom: reader.zoom,
+    token,
+    drawClipOverlay: (wrap, cssW, cssH) => renderClipOverlay(wrap, cssW, cssH),
+  };
+  await reader.adapter.render(reader.pos, ctx, keepScroll);
   if (token !== reader.renderToken) return; // superseded
-
-  const v1 = page.getViewport({ scale: 1 });
-  const avail = stageWidth();
-  const sidePad = avail < 700 ? 36 : 64; // room for column padding + scrollbar
-  const cap = reader.width === 'comfort' ? 860 : Infinity;
-  const targetCSS = Math.floor(Math.min(avail - sidePad, cap) * reader.zoom);
-  const cssScale = targetCSS / v1.width;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const vp = page.getViewport({ scale: cssScale * dpr });
-
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.floor(vp.width);
-  canvas.height = Math.floor(vp.height);
-  canvas.style.width = targetCSS + 'px';
-  canvas.style.height = Math.round(targetCSS * (v1.height / v1.width)) + 'px';
-  await page.render({ canvasContext: canvas.getContext('2d')!, viewport: vp }).promise;
-  if (token !== reader.renderToken) return;
-
-  const col = el('r-col');
-  col.innerHTML = '';
-  const wrap = document.createElement('div');
-  wrap.className = 'rpage';
-  wrap.appendChild(canvas);
-  const cssW = targetCSS;
-  const cssH = Math.round(targetCSS * (v1.height / v1.width));
-  reader.cssW = cssW; reader.cssH = cssH; reader.cssScale = cssScale;
-  renderClipOverlay(wrap, cssW, cssH);
-  col.appendChild(wrap);
-  clearSelToolbar();
-  renderTextLayerFor(page, wrap, cssScale, token);
-
-  if (!keepScroll) el('r-stage').scrollTop = 0;
   updateReaderChrome();
-  persistPage();
+  persistPos();
 }
 
 // Renders a selectable PDF.js text layer over the page canvas (text PDFs only;
@@ -1100,38 +2210,82 @@ function renderClipOverlay(wrap: HTMLElement, cssW: number, cssH: number): void 
 }
 
 function updateReaderChrome(): void {
-  const b = reader.book; if (!b) return;
-  (el('r-page-input') as HTMLInputElement).value = String(reader.page);
-  const p = b.numPages <= 1 ? 100 : ((reader.page - 1) / (b.numPages - 1)) * 100;
-  el('r-progress-bar').style.width = p + '%';
-  (el('r-prev') as HTMLButtonElement).disabled = reader.page <= 1;
-  (el('r-next') as HTMLButtonElement).disabled = reader.page >= b.numPages;
-  (el('r-prev-s') as HTMLButtonElement).disabled = reader.page <= 1;
-  (el('r-next-s') as HTMLButtonElement).disabled = reader.page >= b.numPages;
+  const b = reader.book; const ad = reader.adapter; if (!b || !ad) return;
+  const label = ad.posLabel(reader.pos);
+  (el('r-page-input') as HTMLInputElement).value = label.current;
+  el('r-progress-bar').style.width = ad.toBarPercent(reader.pos) + '%';
+  // Reflow (epub) has no page bounds — prev/next are always live (epub.js no-ops
+  // at the book edges). Paged formats disable the arrows at the first/last page.
+  const atStart = ad.mode === 'reflow' ? false : reader.page <= 1;
+  const atEnd = ad.mode === 'reflow' ? false : reader.page >= b.numPages;
+  (el('r-prev') as HTMLButtonElement).disabled = atStart;
+  (el('r-next') as HTMLButtonElement).disabled = atEnd;
+  (el('r-prev-s') as HTMLButtonElement).disabled = atStart;
+  (el('r-next-s') as HTMLButtonElement).disabled = atEnd;
 }
 
-function persistPage(): void {
+// Persist the current reader position. Paged/canvas formats write the page
+// number on the legacy wire shape ({currentPage}); scroll formats write a
+// generalized fraction ({progress:{kind:'fraction',value}}). dbPutProgress
+// derives the body from the book's currentPage/progress fields.
+function persistPos(): void {
   const b = reader.book; if (!b) return;
-  b.currentPage = reader.page;
+  if (reader.adapter?.mode === 'scroll') {
+    b.progress = { kind: 'fraction', value: Math.min(Math.max(reader.pos.fraction ?? 0, 0), 1) };
+  } else if (reader.adapter?.mode === 'media') {
+    b.progress = { kind: 'seconds', value: Math.max(0, reader.pos.seconds ?? 0) };
+  } else if (reader.adapter?.mode === 'reflow') {
+    if (reader.pos.cfi) b.progress = { kind: 'cfi', value: reader.pos.cfi };
+  } else if (reader.pos.page != null) {
+    b.currentPage = reader.pos.page;
+  }
   b.lastReadAt = Date.now();
   const cached = books.find(x => x.id === b.id);
-  if (cached) { cached.currentPage = b.currentPage; cached.lastReadAt = b.lastReadAt; }
+  if (cached) { cached.currentPage = b.currentPage; cached.progress = b.progress; cached.lastReadAt = b.lastReadAt; }
   window.clearTimeout(reader.saveTimer);
   reader.saveTimer = window.setTimeout(() => { dbPutProgress(b).catch(() => {}); }, 350);
 }
 
+// Toggle play/pause for the current media element (Space shortcut). Best-effort:
+// no-op if there's no media element or autoplay is blocked.
+function toggleMediaPlayback(): void {
+  const m = el('r-col').querySelector('audio,video') as HTMLMediaElement | null;
+  if (!m) return;
+  if (m.paused) m.play().catch(() => {}); else m.pause();
+}
+
 function go(delta: number): void {
-  if (!reader.book) return;
+  if (!reader.book || !reader.adapter) return;
+  // Reflow (epub): no page numbers — drive epub.js prev/next directly. The
+  // adapter's 'relocated' handler updates pos/chrome and persists the new CFI.
+  if (reader.adapter.mode === 'reflow') {
+    const ad = reader.adapter as EpubAdapter;
+    if (delta > 0) ad.next(); else if (delta < 0) ad.prev();
+    return;
+  }
+  if (reader.adapter.mode !== 'canvas') return;   // scroll formats don't page
   const next = reader.page + delta;
   if (next < 1 || next > reader.book.numPages) return;
-  renderPage(next, false);
+  renderAt({ page: next }, false);
 }
 
 // Edge-aware page turning: the wheel scrolls within a tall page, and only flips
 // pages once you're already at the top/bottom edge and keep scrolling. A short
 // cooldown stops trackpad momentum from skipping multiple pages per gesture.
 function onReaderWheel(e: WheelEvent): void {
-  if (!reader.doc || !reader.book) return;
+  if (!reader.adapter || !reader.book) return;
+  // Reflow (epub): one wheel notch = one page turn, debounced. The iframe owns
+  // its own layout, so drive paging explicitly rather than relying on it.
+  if (reader.adapter.mode === 'reflow') {
+    const down = e.deltaY > 0, up = e.deltaY < 0;
+    if (!down && !up) return;
+    e.preventDefault();
+    if (e.timeStamp - reader.wheelLock < 450) return;
+    reader.wheelLock = e.timeStamp;
+    go(down ? 1 : -1);
+    return;
+  }
+  if (reader.adapter.mode !== 'canvas') return;   // scroll formats: native scroll
   if (reader.capturing) { e.preventDefault(); return; }   // no paging mid-capture
   const down = e.deltaY > 0, up = e.deltaY < 0;
   if (!down && !up) return; // pure horizontal / no vertical intent
@@ -1159,7 +2313,7 @@ let resizeTimer: any = 0;
 function onResize(): void {
   if (!el('reader').classList.contains('show')) return;
   window.clearTimeout(resizeTimer);
-  resizeTimer = window.setTimeout(() => renderPage(reader.page, true), 160);
+  resizeTimer = window.setTimeout(() => renderAt(reader.pos, true), 160);
 }
 
 // distraction-free / zen
@@ -1170,14 +2324,14 @@ function enterZen(): void {
   hint.classList.add('show');
   window.setTimeout(() => hint.classList.remove('show'), 2600);
   if (rd.requestFullscreen) rd.requestFullscreen().catch(() => {});
-  window.setTimeout(() => renderPage(reader.page, true), 120);
+  window.setTimeout(() => renderAt(reader.pos, true), 120);
 }
 function exitZen(): void {
   const rd = el('reader');
   if (!rd.classList.contains('zen')) return;
   rd.classList.remove('zen', 'peek');
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-  window.setTimeout(() => renderPage(reader.page, true), 120);
+  window.setTimeout(() => renderAt(reader.pos, true), 120);
 }
 function toggleZen(): void {
   el('reader').classList.contains('zen') ? exitZen() : enterZen();
@@ -1200,7 +2354,7 @@ function exitCapture(): void {
   const sel = document.getElementById('r-capsel'); if (sel) sel.classList.remove('show');
 }
 function toggleCapture(): void {
-  if (!reader.doc) return;
+  if (!reader.adapter) return;
   clearSelToolbar();
   reader.capturing = !reader.capturing;
   el('reader').classList.toggle('capturing', reader.capturing);
@@ -1356,21 +2510,60 @@ function onTextSelection(): void {
   const text = sel.toString().trim();
   const col = el('r-col');
   if (!text || !sel.anchorNode || !col.contains(sel.anchorNode)) { clearSelToolbar(); return; }
-  const canvas = col.querySelector('canvas') as HTMLCanvasElement | null;
-  if (!canvas) { clearSelToolbar(); return; }
-  const cb = canvas.getBoundingClientRect();
   const range = sel.getRangeAt(0);
   const client = Array.from(range.getClientRects());
-  const rects: Rect[] = [];
-  for (const r of client) {
-    if (r.width < 1 || r.height < 1) continue;
-    const w = r.width / cb.width, h = r.height / cb.height;
-    if (w <= 0 || h <= 0) continue;
-    rects.push({ x: (r.left - cb.left) / cb.width, y: (r.top - cb.top) / cb.height, w, h });
+  if (!client.length) { clearSelToolbar(); return; }
+  // Canvas formats (PDF) map the selection to normalized page rects so it can be
+  // highlighted. Scroll formats (txt/md) have no canvas: text-share still works
+  // (composeTextCard uses the string), but there are no rects to highlight — the
+  // Highlight button is gated by the .text-share-only reader class.
+  const canvas = reader.adapter?.currentCanvas() ?? null;
+  let rects: Rect[] = [];
+  if (canvas) {
+    const cb = canvas.getBoundingClientRect();
+    for (const r of client) {
+      if (r.width < 1 || r.height < 1) continue;
+      const w = r.width / cb.width, h = r.height / cb.height;
+      if (w <= 0 || h <= 0) continue;
+      rects.push({ x: (r.left - cb.left) / cb.width, y: (r.top - cb.top) / cb.height, w, h });
+    }
+    if (!rects.length) { clearSelToolbar(); return; }
   }
-  if (!rects.length) { clearSelToolbar(); return; }
   pendingSel = { rects, text, page: reader.page };
+  // Persisted highlights need page rects (region-clippable formats only); for
+  // scroll text the toolbar offers Share alone.
+  const canHighlight = !!reader.adapter?.caps.regionClippable && rects.length > 0;
+  el('sel-highlight').classList.toggle('hidden', !canHighlight);
   positionSelToolbar(client[0]);
+}
+
+// Surface the Share toolbar for a selection made inside an EPUB iframe (epub.js
+// 'selected'). There's no canvas and no top-document selection, so we carry the
+// text with empty rects (text-card share only) and position the toolbar over the
+// selection by translating the iframe-local client rect into page coordinates.
+function surfaceTextShare(text: string, cfiRange: string, contents: any): void {
+  if (!text) { clearSelToolbar(); return; }
+  pendingSel = { rects: [], text, page: reader.page };
+  el('sel-highlight').classList.add('hidden');   // epub: no persisted highlights
+  // Best-effort positioning: map the iframe-local selection rect to viewport
+  // coords via the iframe's offset. Fall back to the reader stage centre.
+  let placed = false;
+  try {
+    const win = contents?.window || contents?.document?.defaultView;
+    const sel = win?.getSelection?.();
+    const range = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
+    const r = range?.getClientRects?.()[0] || range?.getBoundingClientRect?.();
+    const frame: HTMLIFrameElement | null = (contents?.document?.defaultView?.frameElement as HTMLIFrameElement) || el('r-col').querySelector('iframe');
+    if (r && frame) {
+      const fb = frame.getBoundingClientRect();
+      positionSelToolbar(new DOMRect(fb.left + r.left, fb.top + r.top, r.width, r.height));
+      placed = true;
+    }
+  } catch { /* cross-frame measurement can throw — fall through */ }
+  if (!placed) {
+    const sb = el('r-stage').getBoundingClientRect();
+    positionSelToolbar(new DOMRect(sb.left + sb.width / 2 - 80, sb.top + 80, 160, 24));
+  }
 }
 
 function downloadBlob(blob: Blob, name: string): void {
@@ -1402,7 +2595,7 @@ let sheetState: { rects: Rect[]; text?: string; clip?: Clip; color: string; blob
 
 async function openClipSheet(arg: { clip?: Clip; region?: { rect: Rect }; text?: { rects: Rect[]; text: string } }): Promise<void> {
   const book = reader.book; if (!book) return;
-  const canvas = el('r-col').querySelector('canvas') as HTMLCanvasElement | null;
+  const canvas = reader.adapter?.currentCanvas() ?? null;
   const clip = arg.clip;
   let rects: Rect[]; let text: string | undefined;
   if (clip) { rects = clip.rects; text = clip.text; }
@@ -1477,7 +2670,7 @@ function wireReader(): void {
     const x1 = Math.max(e.clientX, capStart.x), y1 = Math.max(e.clientY, capStart.y);
     capStart = null;
     suppressClick = true;   // the drag also fires a click; don't page-turn on it
-    const canvas = el('r-col').querySelector('canvas') as HTMLCanvasElement | null;
+    const canvas = reader.adapter?.currentCanvas() ?? null;
     exitCapture();
     if (!canvas) return;
     const cb = canvas.getBoundingClientRect();
@@ -1568,8 +2761,8 @@ function wireReader(): void {
     openClipSheet({ text: payload });
   });
 
-  el('r-zoom-in').addEventListener('click', () => { reader.zoom = Math.min(reader.zoom + 0.15, 2.2); renderPage(reader.page, true); });
-  el('r-zoom-out').addEventListener('click', () => { reader.zoom = Math.max(reader.zoom - 0.15, 0.6); renderPage(reader.page, true); });
+  el('r-zoom-in').addEventListener('click', () => { reader.zoom = Math.min(reader.zoom + 0.15, 2.2); renderAt(reader.pos, true); });
+  el('r-zoom-out').addEventListener('click', () => { reader.zoom = Math.max(reader.zoom - 0.15, 0.6); renderAt(reader.pos, true); });
 
   el('width-seg').addEventListener('click', (e) => {
     const btn = (e.target as HTMLElement).closest('button') as HTMLElement | null;
@@ -1578,13 +2771,13 @@ function wireReader(): void {
     localStorage.setItem(LS.width, reader.width);
     reader.zoom = 1;
     setWidthButtons();
-    renderPage(reader.page, true);
+    renderAt(reader.pos, true);
   });
 
   const pi = el('r-page-input') as HTMLInputElement;
   const commit = () => {
     const v = parseInt(pi.value, 10);
-    if (!isNaN(v) && reader.book) renderPage(v, false);
+    if (!isNaN(v) && reader.book) renderAt({ page: v }, false);
     else pi.value = String(reader.page);
   };
   pi.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') { commit(); pi.blur(); } });
@@ -1613,12 +2806,26 @@ function wireReader(): void {
     const k = (e as KeyboardEvent).key;
     const tag = (document.activeElement && (document.activeElement as HTMLElement).tagName) || '';
     if (tag === 'INPUT') return;
-    if (k === 'ArrowRight' || k === 'PageDown' || k === ' ') { e.preventDefault(); go(1); }
-    else if (k === 'ArrowLeft' || k === 'PageUp') { e.preventDefault(); go(-1); }
-    else if (k === 'ArrowDown') { el('r-stage').scrollTop += 120; }
-    else if (k === 'ArrowUp') { el('r-stage').scrollTop -= 120; }
-    else if (k === 'Home') { e.preventDefault(); renderPage(1, false); }
-    else if (k === 'End' && reader.book) { e.preventDefault(); renderPage(reader.book.numPages, false); }
+    // Scroll formats: leave paging/scroll keys to the browser's native handling
+    // (Space/PageDown scroll the column); only the global shortcuts below apply.
+    const paged = reader.adapter ? reader.adapter.mode === 'canvas' : true;
+    // Reflow (epub): Left/Right (and Space/PageUp/PageDown) turn pages via the
+    // adapter; don't rely on the iframe having focus. Other keys fall through.
+    if (reader.adapter?.mode === 'reflow') {
+      if (k === 'ArrowRight' || k === 'PageDown' || k === ' ') { e.preventDefault(); go(1); return; }
+      if (k === 'ArrowLeft' || k === 'PageUp') { e.preventDefault(); go(-1); return; }
+    }
+    // Media: Space toggles play/pause (native controls handle seeking). Other
+    // keys fall through to global shortcuts (f/Escape) below.
+    if (!paged && reader.adapter?.mode === 'media' && k === ' ') {
+      e.preventDefault(); toggleMediaPlayback(); return;
+    }
+    if (paged && (k === 'ArrowRight' || k === 'PageDown' || k === ' ')) { e.preventDefault(); go(1); }
+    else if (paged && (k === 'ArrowLeft' || k === 'PageUp')) { e.preventDefault(); go(-1); }
+    else if (paged && k === 'ArrowDown') { el('r-stage').scrollTop += 120; }
+    else if (paged && k === 'ArrowUp') { el('r-stage').scrollTop -= 120; }
+    else if (paged && k === 'Home') { e.preventDefault(); renderAt({ page: 1 }, false); }
+    else if (paged && k === 'End' && reader.book) { e.preventDefault(); renderAt({ page: reader.book.numPages }, false); }
     else if (k === 'f' || k === 'F') { toggleZen(); }
     else if (k === 'Escape') {
       if (reader.capturing) exitCapture();
@@ -1629,6 +2836,196 @@ function wireReader(): void {
   });
 
   window.addEventListener('resize', onResize);
+}
+
+// ============================================================
+//  NOTE EDITOR
+// ============================================================
+// Standalone notes (Phase 1). A note is a library item with no PDF bytes; its
+// body lives in the notes store (dbGetNote/dbPutNote). The editor mirrors the
+// reader overlay conventions: fixed, .show toggle, body scroll-lock, Escape.
+const noteEd = {
+  book: null as Book | null,
+  saveTimer: 0 as any,
+  preview: false,   // markdown preview vs textarea
+};
+
+function noteFormatOf(b: Book): 'text' | 'markdown' { return b.noteFormat || 'markdown'; }
+
+function setNoteFormatButtons(fmt: 'text' | 'markdown'): void {
+  document.querySelectorAll('#note-format button').forEach(btn => {
+    btn.classList.toggle('active', (btn as HTMLElement).dataset.nf === fmt);
+  });
+}
+
+// Toggle preview (markdown only): render the textarea into #note-render.
+function setNotePreview(on: boolean): void {
+  const b = noteEd.book;
+  const isMd = b ? noteFormatOf(b) === 'markdown' : false;
+  noteEd.preview = on && isMd;
+  const ed = el('note-editor');
+  ed.classList.toggle('preview', noteEd.preview);
+  el('note-preview-toggle').classList.toggle('hidden', !isMd);
+  if (noteEd.preview) {
+    el('note-render').innerHTML = renderMarkdown((el('note-body') as HTMLTextAreaElement).value);
+  }
+}
+
+function setNoteSaved(msg: string): void { el('note-saved').textContent = msg; }
+
+// Mirror title/format edits into the in-memory books entry and re-render the lib.
+function syncNoteMeta(): void {
+  const b = noteEd.book; if (!b) return;
+  const cached = books.find(x => x.id === b.id);
+  if (cached) { cached.title = b.title; cached.noteFormat = b.noteFormat; cached.lastReadAt = b.lastReadAt; }
+}
+
+async function openNote(id: string): Promise<void> {
+  const meta = books.find(x => x.id === id);
+  if (!meta) { toast(t('toast.cantOpen')); return; }
+  const b = meta as Book;
+  noteEd.book = b;
+  (el('note-title') as HTMLInputElement).value = b.title || '';
+  setNoteFormatButtons(noteFormatOf(b));
+  setNoteSaved('');
+  const ed = el('note-editor');
+  ed.classList.add('show');
+  document.body.style.overflow = 'hidden';
+  let body = '';
+  try { body = await dbGetNote(id); }
+  catch (e) { if (e instanceof ApiAuthError) { closeNote(); return; } }
+  (el('note-body') as HTMLTextAreaElement).value = body;
+  // Markdown notes open in preview with an Edit affordance; plain opens to text.
+  setNotePreview(noteFormatOf(b) === 'markdown');
+  if (!noteEd.preview) (el('note-body') as HTMLTextAreaElement).focus();
+}
+
+function closeNote(): void {
+  el('note-editor').classList.remove('show', 'preview');
+  document.body.style.overflow = '';
+  window.clearTimeout(noteEd.saveTimer);
+  noteEd.book = null;
+  noteEd.preview = false;
+  renderLibrary();
+}
+
+// Autosave the body, debounced. Uses a fresh title from the first line if blank.
+function scheduleNoteSave(): void {
+  const b = noteEd.book; if (!b) return;
+  window.clearTimeout(noteEd.saveTimer);
+  noteEd.saveTimer = window.setTimeout(async () => {
+    if (!noteEd.book || noteEd.book.id !== b.id) return;
+    const body = (el('note-body') as HTMLTextAreaElement).value;
+    b.lastReadAt = Date.now();
+    syncNoteMeta();
+    try {
+      await dbPutNote(b.id, body);
+      setNoteSaved(navigator.onLine ? t('note.saved') : t('note.savedOffline'));
+    } catch (e) {
+      if (e instanceof ApiNetworkError) setNoteSaved(t('note.savedOffline'));
+      else console.error(e);
+    }
+  }, 350);
+}
+
+// Derive a title from the first non-blank line (markdown heading hashes stripped).
+function deriveNoteTitle(body: string): string {
+  const line = body.split('\n').map(s => s.trim()).find(s => s.length) || '';
+  return line.replace(/^#+\s*/, '').slice(0, 120);
+}
+
+// Persist title/format metadata (on blur/change), mirroring into books + lib.
+async function saveNoteMeta(): Promise<void> {
+  const b = noteEd.book; if (!b) return;
+  const input = el('note-title') as HTMLInputElement;
+  let title = input.value.trim();
+  if (!title) {
+    title = deriveNoteTitle((el('note-body') as HTMLTextAreaElement).value) || t('note.untitled');
+  }
+  b.title = title;
+  syncNoteMeta();
+  renderLibrary();
+  try { await dbPutNoteMeta(b.id, { title: b.title, noteFormat: b.noteFormat }); }
+  catch (e) { if (!(e instanceof ApiNetworkError)) console.error(e); }
+}
+
+async function changeNoteFormat(fmt: 'text' | 'markdown'): Promise<void> {
+  const b = noteEd.book; if (!b || noteFormatOf(b) === fmt) return;
+  b.noteFormat = fmt;
+  setNoteFormatButtons(fmt);
+  syncNoteMeta();
+  setNotePreview(false);   // switching format drops back to the editable textarea
+  renderLibrary();
+  try { await dbPutNoteMeta(b.id, { noteFormat: fmt }); }
+  catch (e) { if (!(e instanceof ApiNetworkError)) console.error(e); }
+}
+
+async function createNote(): Promise<void> {
+  // id MUST start with 'n' so the backend's isNoteId() recognizes it.
+  const id = 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const note: Book = {
+    id, title: '', author: '', fileName: '', data: new ArrayBuffer(0),
+    numPages: 1, currentPage: 1, cover: null,
+    addedAt: Date.now(), lastReadAt: 0, format: 'note', noteFormat: 'markdown',
+  };
+  try {
+    await dbCreateNote(stripData(note));
+  } catch (e) {
+    if (e instanceof ApiNetworkError) { toast(t('toast.offlineRetry')); return; }
+    console.error(e); toast(t('toast.cantOpen')); return;
+  }
+  books.unshift(note);
+  renderLibrary();
+  toast(t('toast.noteCreated'));
+  openNote(id);
+}
+
+async function deleteNote(): Promise<void> {
+  const b = noteEd.book; if (!b) return;
+  const title = b.title || t('note.untitled');
+  if (!window.confirm(t('note.confirmDelete', { title }))) return;
+  const id = b.id;
+  try { await dbDelNote(id); }
+  catch (e) {
+    if (e instanceof ApiNetworkError) { toast(t('toast.offlineRetry')); return; }
+    console.error(e);
+  }
+  books = books.filter(x => x.id !== id);
+  closeNote();
+  toast(t('toast.noteRemoved'));
+}
+
+function wireNotes(): void {
+  el('btn-newnote').addEventListener('click', () => createNote());
+  el('note-back').addEventListener('click', closeNote);
+  el('note-delete').addEventListener('click', deleteNote);
+
+  el('note-body').addEventListener('input', scheduleNoteSave);
+
+  const titleInput = el('note-title') as HTMLInputElement;
+  titleInput.addEventListener('blur', saveNoteMeta);
+  titleInput.addEventListener('keydown', (e) => {
+    if ((e as KeyboardEvent).key === 'Enter') { e.preventDefault(); titleInput.blur(); }
+  });
+
+  el('note-format').addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('button') as HTMLElement | null;
+    if (!btn) return;
+    changeNoteFormat(btn.dataset.nf as 'text' | 'markdown');
+  });
+
+  // Preview toggle flips between rendered markdown and the editable textarea.
+  el('note-preview-toggle').addEventListener('click', () => {
+    if (!noteEd.book || noteFormatOf(noteEd.book) !== 'markdown') return;
+    const next = !noteEd.preview;
+    setNotePreview(next);
+    if (!next) (el('note-body') as HTMLTextAreaElement).focus();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (!el('note-editor').classList.contains('show')) return;
+    if ((e as KeyboardEvent).key === 'Escape') closeNote();
+  });
 }
 
 // ============================================================
@@ -1676,6 +3073,7 @@ function wireAuth(): void {
     localStorage.removeItem(LS.pdfLru);
     localStorage.removeItem(LS.progressQueue);
     localStorage.removeItem(LS.clipQueue);
+    localStorage.removeItem(LS.noteQueue);
     try {
       await Promise.all([caches.delete(PDF_CACHE), caches.delete(DATA_CACHE), caches.delete(SHARED_CACHE)]);
     } catch {}
@@ -1725,6 +3123,7 @@ async function boot(): Promise<void> {
   booted = true;
   flushProgressQueue();   // replay page turns queued while offline
   flushClipQueue();       // replay clipping create/delete ops queued offline
+  flushNoteQueue();       // replay note-body edits queued offline
   await refreshOfflineIds();
   try {
     books = (await dbAll()) as unknown as Book[];
@@ -1750,8 +3149,10 @@ async function handleLaunchParams(): Promise<void> {
   }
 }
 
-// PDFs received via the Android share sheet wait in the shared cache (put
-// there by the service worker) until someone is signed in to shelve them.
+// Files received via the OS share sheet wait in the shared cache (put there by
+// the service worker) until someone is signed in to shelve them. Any supported
+// format is accepted: the stored Response carries the file's real content-type,
+// so ingest() routes it by detectFormat (extension first, MIME as tiebreaker).
 async function drainSharedCache(): Promise<void> {
   try {
     const cache = await caches.open(SHARED_CACHE);
@@ -1761,9 +3162,10 @@ async function drainSharedCache(): Promise<void> {
     for (const req of keys) {
       const res = await cache.match(req);
       if (!res) continue;
-      const name = decodeURIComponent(res.headers.get('x-file-name') || '') || 'Shared.pdf';
+      const name = decodeURIComponent(res.headers.get('x-file-name') || '') || 'Shared';
+      const type = res.headers.get('content-type') || undefined;
       const buf = await res.arrayBuffer();
-      const b = await ingest({ name, buf });
+      const b = await ingest({ name, buf, type });
       if (b) books.unshift(b);
       await cache.delete(req);
     }
@@ -1793,6 +3195,7 @@ function wirePwa(): void {
   window.addEventListener('online', () => {
     flushProgressQueue();
     flushClipQueue();
+    flushNoteQueue();
     if (!el('app').classList.contains('hidden')) { booted = false; boot(); }
   });
 
@@ -1851,8 +3254,10 @@ function init(): void {
   locale = resolveLocale();
   pluralRules = new Intl.PluralRules(locale);
   applyI18n();
+  setupMarked();
   wireAuth();
   wireSettings();
+  wireNotes();
   _onUnauthorized = () => {
     localStorage.removeItem(LS.user);
     el('app').classList.add('hidden');

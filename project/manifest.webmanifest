@@ -32,7 +32,30 @@
     "method": "POST",
     "enctype": "multipart/form-data",
     "params": {
-      "files": [{ "name": "pdfs", "accept": ["application/pdf", ".pdf"] }]
+      "files": [
+        {
+          "name": "pdfs",
+          "accept": [
+            "application/pdf", ".pdf",
+            "application/epub+zip", ".epub",
+            "application/vnd.comicbook+zip", ".cbz",
+            "text/plain", ".txt",
+            "text/markdown", ".md"
+          ]
+        }
+      ]
     }
-  }
+  },
+  "file_handlers": [
+    {
+      "action": "/",
+      "accept": {
+        "application/pdf": [".pdf"],
+        "application/epub+zip": [".epub"],
+        "application/vnd.comicbook+zip": [".cbz"],
+        "text/plain": [".txt"],
+        "text/markdown": [".md"]
+      }
+    }
+  ]
 }
