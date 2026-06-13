@@ -12,6 +12,15 @@ resource "aws_dynamodb_table" "books" {
     name = "id"
     type = "S"
   }
+
+  server_side_encryption {
+    enabled = true
+  }
+
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
 }
 
 resource "aws_s3_bucket" "pdfs" {
@@ -26,12 +35,21 @@ resource "aws_s3_bucket_public_access_block" "pdfs" {
   restrict_public_buckets = true
 }
 
+resource "aws_s3_bucket_server_side_encryption_configuration" "pdfs" {
+  bucket = aws_s3_bucket.pdfs.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
 # The browser uploads/downloads directly to S3 via presigned URLs, which is a
 # cross-origin request from the site, so the bucket needs CORS.
 resource "aws_s3_bucket_cors_configuration" "pdfs" {
   bucket = aws_s3_bucket.pdfs.id
   cors_rule {
-    allowed_methods = ["GET", "PUT"]
+    allowed_methods = ["GET", "PUT", "POST"]
     allowed_origins = ["https://${var.domain_name}"]
     allowed_headers = ["*"]
     expose_headers  = ["ETag"]
