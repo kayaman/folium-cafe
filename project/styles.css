@@ -445,3 +445,25 @@ body{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-ri
   font-size:14px;font-weight:500;padding:11px}
 .clip-actions .mast-btn:hover{background:rgba(110,74,41,.08);border-color:var(--wood-hi)}
 #clip-delete{color:var(--leather)}
+
+/* ============================================================
+   TEXT LAYER (selectable) + selection toolbar
+   ============================================================ */
+.textLayer{position:absolute;left:0;top:0;text-align:initial;overflow:clip;line-height:1;
+  opacity:1;z-index:2;forced-color-adjust:none;transform-origin:0 0;
+  -webkit-text-size-adjust:none;text-size-adjust:none}
+.textLayer span,.textLayer br{color:transparent;position:absolute;white-space:pre;cursor:text;
+  transform-origin:0 0}
+.textLayer span.markedContent{top:0;height:0}
+.textLayer ::selection{background:rgba(94,38,29,.32)}
+.rclips{z-index:3}
+#reader.capturing .textLayer{pointer-events:none}
+
+#sel-toolbar{position:fixed;z-index:46;display:none;gap:2px;padding:4px;
+  background:linear-gradient(180deg,var(--leather-2),var(--leather));
+  border:1px solid var(--wood-2);border-radius:7px;box-shadow:var(--shadow-3)}
+#sel-toolbar.show{display:flex}
+#sel-toolbar button{border:0;background:transparent;color:#f3e6cd;font-family:var(--display);
+  text-transform:uppercase;letter-spacing:.08em;font-size:12px;font-weight:600;padding:8px 14px;border-radius:5px}
+#sel-toolbar button:hover{background:rgba(0,0,0,.18)}
+#sel-toolbar #sel-highlight{color:var(--brass-hi)}
