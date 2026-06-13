@@ -383,3 +383,25 @@ body{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-ri
 /* "available offline" tick on covers */
 .offdot{position:absolute;left:6px;top:6px;width:8px;height:8px;border-radius:50%;
   background:var(--brass-hi);box-shadow:0 0 0 2px rgba(42,32,24,.35);z-index:2}
+
+/* ============================================================
+   USER SETTINGS + i18n accommodations
+   ============================================================ */
+#settings{position:fixed;inset:0;z-index:50;display:grid;place-items:center;
+  background:rgba(28,17,10,.5);padding:24px}
+.settings-card{position:relative;width:min(380px,100%);
+  background:linear-gradient(180deg,#f8f1e3,#f1e7d2);
+  border:1px solid var(--rule);border-radius:4px;padding:30px 32px 26px;
+  box-shadow:var(--shadow-3),inset 0 1px 0 rgba(255,255,255,.6)}
+.settings-card::before{content:"";position:absolute;inset:7px;
+  border:1px solid var(--rule-soft);border-radius:2px;pointer-events:none}
+.settings-card h2{margin:0 0 18px;text-align:center;font-size:12px}
+.settings-card select{
+  width:100%;padding:12px 14px;font-family:var(--read);font-size:16px;color:var(--ink);
+  background:#fdfaf2;border:1px solid var(--rule);border-radius:3px;outline:none;transition:.18s}
+.settings-card select:focus{border-color:var(--leather-2);box-shadow:0 0 0 3px rgba(124,51,39,.12)}
+.settings-card .btn-primary{margin-top:14px}
+
+/* longer pt/es strings */
+#toast{max-width:min(560px,92vw);text-align:center}
+.dropdown{min-width:210px;width:max-content;max-width:280px}

@@ -23,6 +23,12 @@ jobs:
           npm ci
           npm run build
 
+      - name: Typecheck (i18n dict parity)
+        run: npx tsc --noEmit
+
+      - name: i18n key coverage
+        run: node scripts/i18n-check.mjs
+
       - name: Install backend deps
         working-directory: backend
         run: npm ci
