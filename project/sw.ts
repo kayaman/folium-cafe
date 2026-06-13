@@ -67,7 +67,7 @@ sw.addEventListener('fetch', (e: FetchEvent) => {
         const cache = await caches.open(SHARED_CACHE);
         for (const f of files) {
           await cache.put(
-            '/shared/' + Date.now() + '-' + encodeURIComponent(f.name),
+            '/shared/' + Date.now() + '-' + Math.random().toString(16).slice(2) + '-' + encodeURIComponent(f.name),
             new Response(f, { headers: { 'content-type': 'application/pdf', 'x-file-name': encodeURIComponent(f.name) } })
           );
         }
