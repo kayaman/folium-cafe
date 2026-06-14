@@ -34,6 +34,11 @@ export function parseProgressBody(body) {
   return null;
 }
 
+// Pure helper (unit-testable): true only for an https:// URL.
+export function isHttpsUrl(s) {
+  try { return new URL(s).protocol === 'https:'; } catch { return false; }
+}
+
 async function authed(event) {
   const { hmacKey } = await getConfig();
   const jar = parseCookies(event.cookies);
@@ -73,7 +78,16 @@ export async function handler(event) {
     }
 
     if (method === 'GET' && path === '/api/books') {
-      return json(200, { books: await repo.listBooks() });
+      const [books, collections] = await Promise.all([
+        repo.listBooks(), repo.listCollections(),
+      ]);
+      // Lazy self-heal: intersect each book's collections with the live set so
+      // stale membership (e.g. a collection deleted out-of-band) never surfaces.
+      const liveSet = new Set(collections.map((c) => c.id));
+      for (const book of books) {
+        book.collections = (book.collections || []).filter((c) => liveSet.has(c));
+      }
+      return json(200, { books, collections });
     }
 
     if (method === 'POST' && path === '/api/books') {
@@ -84,6 +98,15 @@ export async function handler(event) {
       if (!repo.FORMATS.has(format) || format === 'note') {
         return json(400, { error: 'bad format' });
       }
+      // Linked (external) media: no bytes to upload, so no presigned PUT.
+      if (body.url != null && body.url !== '') {
+        if (format !== 'audio' && format !== 'video') {
+          return json(400, { error: 'url only valid for audio/video' });
+        }
+        if (!isHttpsUrl(body.url)) return json(400, { error: 'url must be https' });
+        await repo.putBook({ ...body, format, provider: body.provider ?? null });
+        return json(200, { ok: true });
+      }
       const contentType = repo.chooseContentType(format, body.contentType);
       if (contentType === null) return json(400, { error: 'bad content type' });
       await repo.putBook({ ...body, format });
@@ -91,7 +114,7 @@ export async function handler(event) {
       return json(200, { ok: true, uploadUrl, contentType });
     }
 
-    const m = path.match(/^\/api\/books\/([^/]+)(\/url|\/progress)?$/);
+    const m = path.match(/^\/api\/books\/([^/]+)(\/url|\/progress|\/collections)?$/);
     if (m) {
       const id = decodeURIComponent(m[1]);
       const sub = m[2];
@@ -99,7 +122,18 @@ export async function handler(event) {
       if (method === 'GET' && sub === '/url') {
         const book = await repo.getBook(id);
         if (!book) return json(404, { error: 'not found' });
+        if (repo.isLinkedMedia(book)) return json(400, { error: 'linked media has no presigned url' });
         return json(200, { url: await repo.presignGet(id, book.format) });
+      }
+      if (method === 'PUT' && sub === '/collections') {
+        const ids = Array.isArray(body.collections) ? body.collections : [];
+        try {
+          await repo.setItemCollections(id, ids);
+        } catch (err) {
+          if (err?.name === 'ConditionalCheckFailedException') return json(404, { error: 'not found' });
+          throw err;
+        }
+        return json(200, { ok: true });
       }
       if (method === 'PUT' && sub === '/progress') {
         const parsed = parseProgressBody(body);
@@ -205,6 +239,34 @@ export async function handler(event) {
         if (!item || item.format !== 'note') return json(404, { error: 'not found' });
         // deleteBook resolves format -> deletes notes/<id>.md (best-effort S3).
         await repo.deleteBook(id);
+        return json(200, { ok: true });
+      }
+    }
+
+    // --- collections: /api/collections[/{id}] ---
+    if (method === 'POST' && path === '/api/collections') {
+      if (!body.id || !repo.isCollectionId(body.id)) return json(400, { error: 'bad collection id' });
+      const createdAt = Date.now();
+      const name = body.name ?? '';
+      await repo.putCollection({ id: body.id, name, createdAt });
+      return json(200, { ok: true, collection: { id: body.id, name, createdAt } });
+    }
+
+    const colm = path.match(/^\/api\/collections(?:\/([^/]+))?$/);
+    if (colm && colm[1]) {
+      const id = decodeURIComponent(colm[1]);
+
+      if (method === 'PATCH') {
+        try {
+          await repo.renameCollection(id, body.name ?? '');
+        } catch (err) {
+          if (err?.name === 'ConditionalCheckFailedException') return json(404, { error: 'not found' });
+          throw err;
+        }
+        return json(200, { ok: true });
+      }
+      if (method === 'DELETE') {
+        await repo.deleteCollection(id);
         return json(200, { ok: true });
       }
     }

@@ -61,16 +61,98 @@ export const parseClipId = (itemId) => {
   return i < 0 ? null : { bookId: itemId.slice(0, i), clipId: itemId.slice(i + CLIP_SEP.length) };
 };
 
+// ---------- collections ----------
+// Collection records share pk='lib' and live under ids `coll<base36>`. Each
+// library item may carry a `collections: string[]` of collection ids (additive;
+// legacy items have none).
+export const COLL_PREFIX = 'coll';
+export const isCollectionId = (id) => typeof id === 'string' && id.startsWith(COLL_PREFIX);
+export const collItemId = (id) => id; // identity — collection records key on their own id
+
+export function normalizeCollections(item) {
+  return Array.isArray(item?.collections) ? item.collections : [];
+}
+
+export function stripFromCollections(arr, id) {
+  return (arr || []).filter((c) => c !== id);
+}
+
+export async function listCollections() {
+  const out = await ddb.send(new QueryCommand({
+    TableName: TABLE,
+    KeyConditionExpression: 'pk = :pk AND begins_with(#id, :coll)',
+    ExpressionAttributeNames: { '#id': 'id' },
+    ExpressionAttributeValues: { ':pk': PK, ':coll': COLL_PREFIX },
+  }));
+  return (out.Items ?? []).map(({ id, name, createdAt }) => ({ id, name, createdAt }));
+}
+
+export async function putCollection(coll) {
+  await ddb.send(new PutCommand({
+    TableName: TABLE,
+    Item: { pk: PK, id: coll.id, name: coll.name, createdAt: coll.createdAt },
+  }));
+}
+
+export async function renameCollection(id, name) {
+  // `name` is a DynamoDB reserved word -> alias it.
+  await ddb.send(new UpdateCommand({
+    TableName: TABLE,
+    Key: { pk: PK, id },
+    UpdateExpression: 'SET #name = :name',
+    ConditionExpression: 'attribute_exists(id)',
+    ExpressionAttributeNames: { '#name': 'name' },
+    ExpressionAttributeValues: { ':name': name },
+  }));
+}
+
+export async function setItemCollections(id, ids) {
+  await ddb.send(new UpdateCommand({
+    TableName: TABLE,
+    Key: { pk: PK, id },
+    UpdateExpression: 'SET collections = :c',
+    ConditionExpression: 'attribute_exists(id)',
+    ExpressionAttributeValues: { ':c': ids },
+  }));
+}
+
+export async function deleteCollection(id) {
+  await ddb.send(new DeleteCommand({ TableName: TABLE, Key: { pk: PK, id } }));
+  // Eager cleanup: strip this id from every item that references it.
+  const out = await ddb.send(new QueryCommand({
+    TableName: TABLE,
+    KeyConditionExpression: 'pk = :pk',
+    ExpressionAttributeValues: { ':pk': PK },
+  }));
+  for (const item of out.Items ?? []) {
+    const cols = normalizeCollections(item);
+    if (cols.includes(id)) {
+      await setItemCollections(item.id, stripFromCollections(cols, id));
+    }
+  }
+}
+
+// ---------- linked media ----------
+// An item is linked (external) media when it carries a non-empty `url`; its
+// bytes live elsewhere, so there is no S3 object and no presigned url.
+export const isLinkedMedia = (item) => !!item && typeof item.url === 'string' && item.url.length > 0;
+
 export async function listBooks() {
   const out = await ddb.send(new QueryCommand({
     TableName: TABLE,
     KeyConditionExpression: 'pk = :pk',
-    FilterExpression: 'NOT contains(#id, :sep)',
+    // Book ids are `b…`, notes `n…`, clips carry `#hl#`; begins_with 'coll' only
+    // excludes collection records, so books/notes are unaffected.
+    FilterExpression: 'NOT contains(#id, :sep) AND NOT begins_with(#id, :coll)',
     ExpressionAttributeNames: { '#id': 'id' },
-    ExpressionAttributeValues: { ':pk': PK, ':sep': CLIP_SEP },
+    ExpressionAttributeValues: { ':pk': PK, ':sep': CLIP_SEP, ':coll': COLL_PREFIX },
   }));
-  // Strip the partition key from the response; default legacy items to pdf.
-  return (out.Items ?? []).map(({ pk, ...rest }) => ({ ...rest, format: rest.format ?? 'pdf' }));
+  // Strip the partition key; default legacy items to pdf and normalize collections.
+  return (out.Items ?? []).map(({ pk, ...rest }) => ({
+    ...rest,
+    format: rest.format ?? 'pdf',
+    collections: normalizeCollections(rest),
+  }));
 }
 
 export async function listClippings(bookId) {
@@ -192,7 +274,10 @@ export async function deleteBook(id) {
   const item = await getBook(id);
   const format = item?.format ?? 'pdf';
   await ddb.send(new DeleteCommand({ TableName: TABLE, Key: { pk: PK, id } }));
-  await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: mediaKey(id, format) })).catch(() => {});
+  // Linked media has no S3 object to remove; only delete real uploads.
+  if (item && !isLinkedMedia(item)) {
+    await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: mediaKey(id, format) })).catch(() => {});
+  }
 }
 
 export function presignPut(id, format, contentType) {
