@@ -38,3 +38,17 @@ test('buildProgressUpdate adds posFrac when frac is a number', () => {
   assert.equal(u.UpdateExpression, 'SET currentPage = :p, lastReadAt = :t, posFrac = :f');
   assert.deepEqual(u.ExpressionAttributeValues, { ':p': 50, ':t': 1234, ':f': 0.37 });
 });
+
+test('parseProgressBody omits an Infinity frac', () => {
+  assert.deepEqual(parseProgressBody({ currentPage: 1, frac: Infinity }), { currentPage: 1 });
+});
+
+test('buildProgressUpdate writes posFrac when frac is exactly 0 (page top)', () => {
+  const u = buildProgressUpdate(1, 1234, 0);
+  assert.equal(u.UpdateExpression, 'SET currentPage = :p, lastReadAt = :t, posFrac = :f');
+  assert.deepEqual(u.ExpressionAttributeValues, { ':p': 1, ':t': 1234, ':f': 0 });
+});
+
+test('buildProgressUpdate omits posFrac for a non-finite frac', () => {
+  assert.equal(buildProgressUpdate(1, 1234, Infinity).UpdateExpression, 'SET currentPage = :p, lastReadAt = :t');
+});
