@@ -4,10 +4,11 @@
   "description": "Folium Café — a private PDF reading room, so you remember the page you were on",
   "scripts": {
     "build": "npm run build:app && npm run build:sw",
-    "build:app": "esbuild project/app.ts --outfile=project/app.js --target=es2020 --log-level=info",
+    "build:app": "esbuild project/app.ts --bundle --outfile=project/app.js --target=es2020 --log-level=info",
     "build:sw": "esbuild project/sw.ts --outfile=project/sw.js --target=es2020 --log-level=info --define:BUILD_ID=\\\"${BUILD_ID:-dev}\\\"",
-    "watch": "esbuild project/app.ts --outfile=project/app.js --target=es2020 --watch",
-    "dev": "esbuild project/app.ts --outfile=project/app.js --target=es2020 --watch",
+    "watch": "esbuild project/app.ts --bundle --outfile=project/app.js --target=es2020 --watch",
+    "dev": "esbuild project/app.ts --bundle --outfile=project/app.js --target=es2020 --watch",
+    "test": "node --test project/test/*.test.mjs",
     "icons": "node scripts/icons.mjs"
   },
   "devDependencies": {

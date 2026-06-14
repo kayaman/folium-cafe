@@ -440,8 +440,16 @@ body{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-ri
   box-shadow:var(--shadow-3),inset 0 1px 0 rgba(255,255,255,.6)}
 .settings-card::before{content:"";position:absolute;inset:7px;
   border:1px solid var(--rule-soft);border-radius:2px;pointer-events:none}
-@keyframes modalIn{from{opacity:0;transform:translateY(8px) scale(.985)}to{opacity:1;transform:none}}
-.modal-overlay:not(.hidden) .settings-card,#settings:not(.hidden) .settings-card,#clip-sheet:not(.hidden) .clip-card{animation:modalIn var(--t-med) var(--ease)}
+/* both-directions modal animation: opacity+discrete display on overlays, transform+opacity on cards */
+#settings,#clip-sheet,.modal-overlay{transition:opacity var(--t-med) var(--ease),display var(--t-med) var(--ease) allow-discrete}
+#settings .settings-card,#clip-sheet .clip-card,.modal-overlay .settings-card{transition:transform var(--t-med) var(--ease),opacity var(--t-med) var(--ease)}
+#settings:not(.hidden),#clip-sheet:not(.hidden),.modal-overlay:not(.hidden){opacity:1}
+#settings:not(.hidden) .settings-card,#clip-sheet:not(.hidden) .clip-card,.modal-overlay:not(.hidden) .settings-card{opacity:1;transform:none}
+#settings.hidden .settings-card,#clip-sheet.hidden .clip-card,.modal-overlay.hidden .settings-card{opacity:0;transform:translateY(8px) scale(.985)}
+@starting-style{
+  #settings:not(.hidden),#clip-sheet:not(.hidden),.modal-overlay:not(.hidden){opacity:0}
+  #settings:not(.hidden) .settings-card,#clip-sheet:not(.hidden) .clip-card,.modal-overlay:not(.hidden) .settings-card{opacity:0;transform:translateY(8px) scale(.985)}
+}
 .settings-card h2{margin:0 0 18px;text-align:center;font-size:12px}
 .settings-card select{
   width:100%;padding:12px 14px;font-family:var(--read);font-size:16px;color:var(--ink);
