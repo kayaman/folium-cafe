@@ -135,7 +135,12 @@ interface Book {
   // Generalized reading position for non-paged formats (scroll/media). Paged
   // formats keep using `currentPage`; scroll formats persist `{kind:'fraction'}`.
   progress?: { kind: 'page' | 'cfi' | 'fraction' | 'seconds'; value: number | string };
+  collections?: string[];     // collection ids this book belongs to
+  url?: string;               // linked external media: https stream URL (no stored bytes)
+  provider?: string | null;   // linked media: free-text provider passthrough
 }
+// A user-defined grouping of books. Membership lives on each Book.collections.
+type Collection = { id: string; name: string; createdAt: number };
 // A note is a first-class library item with no PDF bytes: numPages 1, no cover.
 function isNote(b: Book): boolean { return b.format === 'note'; }
 type ViewMode = 'shelf' | 'grid' | 'list';
@@ -275,6 +280,28 @@ const EN = {
   'note.emptyAdd': 'Write your first note',
   'toast.noteCreated': 'Note created',
   'toast.noteRemoved': 'Note removed',
+  'coll.all': 'All',
+  'coll.new': 'New collection',
+  'coll.namePrompt': 'Name this collection',
+  'coll.renamePrompt': 'Rename collection',
+  'coll.rename': 'Rename',
+  'coll.delete': 'Delete',
+  'coll.confirmDelete': 'Delete the collection “{name}”? Your books stay; only the grouping is removed.',
+  'coll.assignTitle': 'Add to collections',
+  'coll.save': 'Save',
+  'coll.none': 'No collections yet — create one to group your books.',
+  'coll.empty': 'Nothing in this collection yet.',
+  'card.menu': 'More actions',
+  'media.link.tabLink': 'Link',
+  'media.link.url': 'Media URL',
+  'media.link.urlPh': 'https://example.com/audio.mp3',
+  'media.link.titleField': 'Title',
+  'media.link.authorField': 'Author',
+  'media.link.kindAudio': 'Audio',
+  'media.link.kindVideo': 'Video',
+  'media.link.add': 'Add link',
+  'media.link.badUrl': 'Enter a valid https URL',
+  'media.link.added': 'Linked media added',
 } as const;
 type MsgKey = keyof typeof EN;
 
@@ -385,6 +412,28 @@ const PT: Record<MsgKey, string> = {
   'note.emptyAdd': 'Escreva sua primeira nota',
   'toast.noteCreated': 'Nota criada',
   'toast.noteRemoved': 'Nota removida',
+  'coll.all': 'Todas',
+  'coll.new': 'Nova coleção',
+  'coll.namePrompt': 'Nomeie esta coleção',
+  'coll.renamePrompt': 'Renomear coleção',
+  'coll.rename': 'Renomear',
+  'coll.delete': 'Excluir',
+  'coll.confirmDelete': 'Excluir a coleção “{name}”? Seus livros permanecem; só o agrupamento é removido.',
+  'coll.assignTitle': 'Adicionar às coleções',
+  'coll.save': 'Salvar',
+  'coll.none': 'Nenhuma coleção ainda — crie uma para agrupar seus livros.',
+  'coll.empty': 'Nada nesta coleção ainda.',
+  'card.menu': 'Mais ações',
+  'media.link.tabLink': 'Link',
+  'media.link.url': 'URL da mídia',
+  'media.link.urlPh': 'https://exemplo.com/audio.mp3',
+  'media.link.titleField': 'Título',
+  'media.link.authorField': 'Autor',
+  'media.link.kindAudio': 'Áudio',
+  'media.link.kindVideo': 'Vídeo',
+  'media.link.add': 'Adicionar link',
+  'media.link.badUrl': 'Insira uma URL https válida',
+  'media.link.added': 'Mídia vinculada adicionada',
 };
 
 const ES: Record<MsgKey, string> = {
@@ -494,6 +543,28 @@ const ES: Record<MsgKey, string> = {
   'note.emptyAdd': 'Escribe tu primera nota',
   'toast.noteCreated': 'Nota creada',
   'toast.noteRemoved': 'Nota eliminada',
+  'coll.all': 'Todas',
+  'coll.new': 'Nueva colección',
+  'coll.namePrompt': 'Nombra esta colección',
+  'coll.renamePrompt': 'Renombrar colección',
+  'coll.rename': 'Renombrar',
+  'coll.delete': 'Eliminar',
+  'coll.confirmDelete': '¿Eliminar la colección “{name}”? Tus libros permanecen; solo se quita la agrupación.',
+  'coll.assignTitle': 'Añadir a colecciones',
+  'coll.save': 'Guardar',
+  'coll.none': 'Aún no hay colecciones — crea una para agrupar tus libros.',
+  'coll.empty': 'Nada en esta colección todavía.',
+  'card.menu': 'Más acciones',
+  'media.link.tabLink': 'Enlace',
+  'media.link.url': 'URL del medio',
+  'media.link.urlPh': 'https://ejemplo.com/audio.mp3',
+  'media.link.titleField': 'Título',
+  'media.link.authorField': 'Autor',
+  'media.link.kindAudio': 'Audio',
+  'media.link.kindVideo': 'Vídeo',
+  'media.link.add': 'Añadir enlace',
+  'media.link.badUrl': 'Introduce una URL https válida',
+  'media.link.added': 'Medio enlazado añadido',
 };
 
 const DICTS: Record<Locale, Record<MsgKey, string>> = { en: EN, 'pt-BR': PT, es: ES };
@@ -688,16 +759,23 @@ function setOffline(off: boolean): void {
 // fallback so the shelf survives flaky connections and cold offline starts.
 async function dbAll(): Promise<BookMeta[]> {
   const cache = await caches.open(DATA_CACHE);
+  // GET /api/books returns { books, collections }. Also tolerate a legacy
+  // snapshot that cached a bare books array. Side-effects the `collections` global.
+  const take = (body: any): BookMeta[] => {
+    if (Array.isArray(body)) { collections = []; return body as BookMeta[]; }
+    collections = Array.isArray(body.collections) ? body.collections : [];
+    return (body.books ?? []) as BookMeta[];
+  };
   try {
     const res = await api('/books');
     if (!res.ok) throw new ApiNetworkError('list ' + res.status);
     const body = await res.json();
     await cache.put('/data-store/books', new Response(JSON.stringify(body))).catch(() => {});
-    return body.books as BookMeta[];
+    return take(body);
   } catch (e) {
     if (e instanceof ApiAuthError) throw e;     // real logout — no fallback
     const hit = await cache.match('/data-store/books');
-    if (hit) { setOffline(true); return (await hit.json()).books as BookMeta[]; }
+    if (hit) { setOffline(true); return take(await hit.json()); }
     throw e;
   }
 }
@@ -756,6 +834,28 @@ async function dbGet(id: string): Promise<ArrayBuffer | null> {
 async function dbDel(id: string): Promise<void> {
   await api('/books/' + encodeURIComponent(id), { method: 'DELETE' });
   await evictPdf(id);
+}
+
+// ---------- collections (data) ----------
+// Thin wrappers over the BFF routes. ApiNetworkError propagates to the UI flows,
+// which toast offline; ApiAuthError propagates to the login screen via api().
+async function apiCreateCollection(name: string): Promise<Collection> {
+  const c: Collection = { id: collId(), name, createdAt: Date.now() };
+  const res = await api('/collections', { method: 'POST', body: JSON.stringify(c) });
+  if (!res.ok) throw new Error('create failed');
+  return c;
+}
+async function apiRenameCollection(id: string, name: string): Promise<void> {
+  const res = await api('/collections/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify({ name }) });
+  if (!res.ok) throw new Error('rename failed');
+}
+async function apiDeleteCollection(id: string): Promise<void> {
+  const res = await api('/collections/' + encodeURIComponent(id), { method: 'DELETE' });
+  if (!res.ok) throw new Error('delete failed');
+}
+async function apiSetBookCollections(bookId: string, ids: string[]): Promise<void> {
+  const res = await api('/books/' + encodeURIComponent(bookId) + '/collections', { method: 'PUT', body: JSON.stringify({ collections: ids }) });
+  if (!res.ok) throw new Error('set failed');
 }
 
 // Resolve a fresh presigned GET URL for a book's bytes WITHOUT downloading them.
@@ -947,13 +1047,17 @@ const LS = {
   clipQueue: 'folium.clipQueue',
   noteQueue: 'folium.noteQueue',
   lang: 'folium.lang',
+  activeCollection: 'folium.activeCollection',
 };
 migrateLocalStorage();   // must run before viewMode/reader.width read their keys
 let books: Book[] = [];
 let viewMode: ViewMode = (localStorage.getItem(LS.view) as ViewMode) || 'shelf';
+let collections: Collection[] = [];
+let activeCollection: string | null = localStorage.getItem(LS.activeCollection) || null;
 
 // ---------- helpers ----------
 function uid(): string { return 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+function collId(): string { return 'coll' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
 function prettifyName(fn: string): string {
   return fn.replace(/\.pdf$/i, '')
@@ -3131,6 +3235,10 @@ async function boot(): Promise<void> {
     console.error('api error', e);
     books = [];
     booted = false;       // first-run offline: let a later 'online' event retry
+  }
+  // Drop a stale active filter if its collection no longer exists.
+  if (activeCollection && !collections.some(c => c.id === activeCollection)) {
+    activeCollection = null; localStorage.removeItem(LS.activeCollection);
   }
   renderLibrary();
   await handleLaunchParams();
