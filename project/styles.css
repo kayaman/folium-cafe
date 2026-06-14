@@ -641,7 +641,7 @@ body{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-ri
 .stepper-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px}
 .stepper-label{font-family:var(--read);font-size:14px;color:var(--ink)}
 .stepper{display:flex;align-items:center;gap:8px}
-.stepper-btn{min-width:44px;height:40px;padding:0 12px;border:1px solid var(--rule);border-radius:4px;
+.stepper-btn{min-width:44px;height:44px;padding:0 12px;border:1px solid var(--rule);border-radius:4px;
   background:#fdfaf2;color:var(--ink);font-family:var(--display);font-weight:600;font-size:15px;transition:var(--t-fast) var(--ease)}
 .stepper-btn:hover{border-color:var(--leather-2);background:#fff}
 .stepper-val{min-width:54px;text-align:center;font-family:var(--read);font-size:14px;color:var(--muted)}

@@ -331,8 +331,10 @@ const EN = {
   'settings.reading': 'Reading',
   'settings.textSize': 'Text size',
   'settings.lineSpacing': 'Line spacing',
-  'settings.decrease': 'Decrease',
-  'settings.increase': 'Increase',
+  'settings.decreaseTextSize': 'Decrease text size',
+  'settings.increaseTextSize': 'Increase text size',
+  'settings.decreaseLineSpacing': 'Decrease line spacing',
+  'settings.increaseLineSpacing': 'Increase line spacing',
 } as const;
 type MsgKey = keyof typeof EN;
 
@@ -480,8 +482,10 @@ const PT: Record<MsgKey, string> = {
   'settings.reading': 'Leitura',
   'settings.textSize': 'Tamanho do texto',
   'settings.lineSpacing': 'Espaçamento',
-  'settings.decrease': 'Diminuir',
-  'settings.increase': 'Aumentar',
+  'settings.decreaseTextSize': 'Diminuir tamanho do texto',
+  'settings.increaseTextSize': 'Aumentar tamanho do texto',
+  'settings.decreaseLineSpacing': 'Diminuir espaçamento',
+  'settings.increaseLineSpacing': 'Aumentar espaçamento',
 };
 
 const ES: Record<MsgKey, string> = {
@@ -628,8 +632,10 @@ const ES: Record<MsgKey, string> = {
   'settings.reading': 'Lectura',
   'settings.textSize': 'Tamaño del texto',
   'settings.lineSpacing': 'Interlineado',
-  'settings.decrease': 'Disminuir',
-  'settings.increase': 'Aumentar',
+  'settings.decreaseTextSize': 'Disminuir tamaño del texto',
+  'settings.increaseTextSize': 'Aumentar tamaño del texto',
+  'settings.decreaseLineSpacing': 'Disminuir interlineado',
+  'settings.increaseLineSpacing': 'Aumentar interlineado',
 };
 
 const DICTS: Record<Locale, Record<MsgKey, string>> = { en: EN, 'pt-BR': PT, es: ES };
@@ -2396,8 +2402,10 @@ class EpubAdapter implements DocAdapter {
       this.displayed = true;
       this.generateLocations();
     } else {
-      // A re-render (e.g. width/resize change): just re-display the current spot.
+      // A re-render (e.g. width/resize change): re-display the current spot and
+      // re-assert type overrides (epub.js may rebuild the iframe on display).
       await this.rendition.display(this.cfi || pos.cfi || undefined);
+      this.applyType(readerFontScale, readerLineHeight);
     }
   }
 
