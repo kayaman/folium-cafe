@@ -25,7 +25,11 @@ const PROGRESS_KINDS = new Set(['page', 'cfi', 'fraction', 'seconds']);
 //   null                               -- invalid / unrecognized
 export function parseProgressBody(body) {
   if (body && typeof body.currentPage === 'number') {
-    return { currentPage: body.currentPage };
+    const out = { currentPage: body.currentPage };
+    if (typeof body.frac === 'number' && Number.isFinite(body.frac)) {
+      out.frac = Math.min(Math.max(body.frac, 0), 1);
+    }
+    return out;
   }
   const p = body?.progress;
   if (p && PROGRESS_KINDS.has(p.kind) && p.value !== undefined && p.value !== null) {
@@ -141,7 +145,7 @@ export async function handler(event) {
         const lastReadAt = body.lastReadAt ?? Date.now();
         if ('currentPage' in parsed) {
           // Legacy contract — unchanged.
-          await repo.updateProgress(id, parsed.currentPage, lastReadAt);
+          await repo.updateProgress(id, parsed.currentPage, lastReadAt, parsed.frac);
         } else {
           await repo.updateProgressGeneric(id, parsed.progress, lastReadAt);
         }
