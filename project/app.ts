@@ -1184,7 +1184,34 @@ const LS = {
   noteQueue: 'folium.noteQueue',
   lang: 'folium.lang',
   activeCollection: 'folium.activeCollection',
+  readerFontScale: 'folium.readerFontScale',
+  readerLineHeight: 'folium.readerLineHeight',
 };
+
+const TYPE_LIMITS = { scaleMin: 0.8, scaleMax: 2.0, scaleStep: 0.1, lhMin: 1.4, lhMax: 2.3, lhStep: 0.15 };
+const clampType = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
+let readerFontScale = clampType(Number(localStorage.getItem(LS.readerFontScale)) || 1, TYPE_LIMITS.scaleMin, TYPE_LIMITS.scaleMax);
+let readerLineHeight = clampType(Number(localStorage.getItem(LS.readerLineHeight)) || 1.75, TYPE_LIMITS.lhMin, TYPE_LIMITS.lhMax);
+
+// Single apply-point: set CSS vars (instant reflow for scroll/markdown) and, if an
+// EPUB is open, push the values into its iframe via epub.js themes (duck-typed).
+function applyReaderType(): void {
+  const root = document.documentElement.style;
+  root.setProperty('--reader-font-scale', String(readerFontScale));
+  root.setProperty('--reader-line-height', String(readerLineHeight));
+  const a = reader.adapter as any;
+  if (a && typeof a.applyType === 'function') a.applyType(readerFontScale, readerLineHeight);
+}
+function setReaderFontScale(v: number): void {
+  readerFontScale = clampType(Number(v.toFixed(2)), TYPE_LIMITS.scaleMin, TYPE_LIMITS.scaleMax);
+  localStorage.setItem(LS.readerFontScale, String(readerFontScale));
+  applyReaderType();
+}
+function setReaderLineHeight(v: number): void {
+  readerLineHeight = clampType(Number(v.toFixed(2)), TYPE_LIMITS.lhMin, TYPE_LIMITS.lhMax);
+  localStorage.setItem(LS.readerLineHeight, String(readerLineHeight));
+  applyReaderType();
+}
 migrateLocalStorage();   // must run before viewMode/reader.width read their keys
 let books: Book[] = [];
 let viewMode: ViewMode = (localStorage.getItem(LS.view) as ViewMode) || 'shelf';
@@ -3872,6 +3899,7 @@ function init(): void {
   locale = resolveLocale();
   pluralRules = new Intl.PluralRules(locale);
   applyI18n();
+  applyReaderType();
   setupMarked();
   wireAuth();
   wireSettings();
