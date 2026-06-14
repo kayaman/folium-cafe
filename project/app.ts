@@ -328,6 +328,11 @@ const EN = {
   'reader.error.title': 'This book would not open',
   'reader.error.body': 'Something went wrong loading it. Check your connection and try again.',
   'reader.error.retry': 'Retry',
+  'settings.reading': 'Reading',
+  'settings.textSize': 'Text size',
+  'settings.lineSpacing': 'Line spacing',
+  'settings.decrease': 'Decrease',
+  'settings.increase': 'Increase',
 } as const;
 type MsgKey = keyof typeof EN;
 
@@ -472,6 +477,11 @@ const PT: Record<MsgKey, string> = {
   'reader.error.title': 'Este livro não pôde ser aberto',
   'reader.error.body': 'Algo deu errado ao carregá-lo. Verifique sua conexão e tente novamente.',
   'reader.error.retry': 'Tentar de novo',
+  'settings.reading': 'Leitura',
+  'settings.textSize': 'Tamanho do texto',
+  'settings.lineSpacing': 'Espaçamento',
+  'settings.decrease': 'Diminuir',
+  'settings.increase': 'Aumentar',
 };
 
 const ES: Record<MsgKey, string> = {
@@ -615,6 +625,11 @@ const ES: Record<MsgKey, string> = {
   'reader.error.title': 'Este libro no se pudo abrir',
   'reader.error.body': 'Algo salió mal al cargarlo. Revisa tu conexión e inténtalo de nuevo.',
   'reader.error.retry': 'Reintentar',
+  'settings.reading': 'Lectura',
+  'settings.textSize': 'Tamaño del texto',
+  'settings.lineSpacing': 'Interlineado',
+  'settings.decrease': 'Disminuir',
+  'settings.increase': 'Aumentar',
 };
 
 const DICTS: Record<Locale, Record<MsgKey, string>> = { en: EN, 'pt-BR': PT, es: ES };
