@@ -8,7 +8,7 @@
     "build:sw": "esbuild project/sw.ts --outfile=project/sw.js --target=es2020 --log-level=info --define:BUILD_ID=\\\"${BUILD_ID:-dev}\\\"",
     "watch": "esbuild project/app.ts --bundle --outfile=project/app.js --target=es2020 --watch",
     "dev": "esbuild project/app.ts --bundle --outfile=project/app.js --target=es2020 --watch",
-    "test": "node --test \"project/test/*.test.mjs\"",
+    "test": "node --test project/test/*.test.mjs",
     "icons": "node scripts/icons.mjs"
   },
   "devDependencies": {
