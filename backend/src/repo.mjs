@@ -248,13 +248,27 @@ export async function getBook(id) {
   return { ...rest, format: rest.format ?? 'pdf' };
 }
 
-export async function updateProgress(id, currentPage, lastReadAt) {
+// Pure, unit-testable: assemble the progress UpdateCommand input. posFrac is
+// written ONLY when a finite frac is supplied, so an older client that omits it
+// never clobbers a good stored value.
+export function buildProgressUpdate(currentPage, lastReadAt, frac) {
+  const values = { ':p': currentPage, ':t': lastReadAt };
+  let expr = 'SET currentPage = :p, lastReadAt = :t';
+  if (typeof frac === 'number' && Number.isFinite(frac)) {
+    expr += ', posFrac = :f';
+    values[':f'] = frac;
+  }
+  return { UpdateExpression: expr, ExpressionAttributeValues: values };
+}
+
+export async function updateProgress(id, currentPage, lastReadAt, frac) {
+  const { UpdateExpression, ExpressionAttributeValues } = buildProgressUpdate(currentPage, lastReadAt, frac);
   await ddb.send(new UpdateCommand({
     TableName: TABLE,
     Key: { pk: PK, id },
-    UpdateExpression: 'SET currentPage = :p, lastReadAt = :t',
+    UpdateExpression,
     ConditionExpression: 'attribute_exists(id)',
-    ExpressionAttributeValues: { ':p': currentPage, ':t': lastReadAt },
+    ExpressionAttributeValues,
   }));
 }
 
