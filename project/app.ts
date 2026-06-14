@@ -3896,8 +3896,17 @@ function wireSettings(): void {
   const modal = el('settings');
   const sel = el<HTMLSelectElement>('lang-select');
   const closeSettings = () => { (modal as any)._untrap?.(); modal.classList.add('hidden'); };
+  function syncTypeReadout(): void {
+    el('type-size-val').textContent = Math.round(readerFontScale * 100) + '%';
+    el('type-lh-val').textContent = readerLineHeight.toFixed(2);
+  }
+  el('type-size-dec').addEventListener('click', () => { setReaderFontScale(readerFontScale - TYPE_LIMITS.scaleStep); syncTypeReadout(); });
+  el('type-size-inc').addEventListener('click', () => { setReaderFontScale(readerFontScale + TYPE_LIMITS.scaleStep); syncTypeReadout(); });
+  el('type-lh-dec').addEventListener('click', () => { setReaderLineHeight(readerLineHeight - TYPE_LIMITS.lhStep); syncTypeReadout(); });
+  el('type-lh-inc').addEventListener('click', () => { setReaderLineHeight(readerLineHeight + TYPE_LIMITS.lhStep); syncTypeReadout(); });
   el('btn-settings').addEventListener('click', () => {
     sel.value = localStorage.getItem(LS.lang) || 'system';
+    syncTypeReadout();
     modal.classList.remove('hidden');
     el('dropdown').classList.add('hidden');
     (modal as any)._untrap = trapFocus(modal, sel);
