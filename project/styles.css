@@ -581,3 +581,27 @@ body{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-ri
   #btn-newnote span{display:none}
   .note-body,.note-render{padding:24px 18px 80px;font-size:17px}
 }
+
+/* ---------- collections + linked media ---------- */
+.chipbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 18px}
+.chip{border:1px solid var(--rule);background:var(--card);color:var(--ink);border-radius:999px;
+  padding:6px 14px;font-family:var(--display);font-size:12px;font-weight:600;letter-spacing:.04em;cursor:pointer;transition:.15s}
+.chip:hover{border-color:var(--leather-2)}
+.chip.active{background:linear-gradient(180deg,var(--brass-hi),var(--brass));color:#3a2410;border-color:var(--wood-2)}
+.chip-add{font-size:15px;line-height:1;padding:5px 12px}
+.chip-edit{border:0;background:transparent;color:var(--muted);cursor:pointer;padding:4px;border-radius:4px;display:grid;place-items:center}
+.chip-edit:hover{background:rgba(110,74,41,.10);color:var(--leather)}
+.chip-edit svg{width:15px;height:15px}
+/* per-card menu button — sits top-right (.del is top-left) */
+.book .cardmenu{position:absolute;top:6px;right:6px;width:24px;height:24px;border-radius:50%;border:0;
+  background:rgba(28,17,10,.55);color:#f3e6cd;cursor:pointer;font-size:16px;line-height:1;display:none;place-items:center;padding:0}
+.book:hover .cardmenu{display:grid}
+.row .cardmenu{flex:none}
+/* shared modal overlay for the collection picker + link sheet */
+.modal-overlay{position:fixed;inset:0;z-index:56;display:grid;place-items:center;background:rgba(28,17,10,.55);padding:20px}
+.modal-overlay.hidden{display:none}
+#coll-picker-list{margin:14px 0 4px;max-height:50vh;overflow:auto}
+.coll-check{display:flex;align-items:center;gap:9px;padding:8px 4px;font-family:var(--read);font-size:15px;color:var(--ink);cursor:pointer}
+.coll-none{color:var(--muted);font-style:italic;padding:8px 4px}
+.coll-picker-actions,.link-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+#link-kind{margin-top:4px}
