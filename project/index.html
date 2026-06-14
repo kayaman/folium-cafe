@@ -57,6 +57,7 @@
       </nav>
       <button class="mast-btn brass" id="btn-upload" title="Add PDFs" data-i18n-title="mast.addTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span data-i18n="mast.add">Add books</span></button>
       <button class="mast-btn" id="btn-newnote" title="Create a note" data-i18n-title="note.newTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg><span data-i18n="note.new">New note</span></button>
+      <button class="mast-btn" id="btn-link" title="Add a media link" data-i18n-title="media.link.tabLink"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg><span data-i18n="media.link.tabLink">Link</span></button>
       <input type="file" id="file-input" accept="application/pdf,.pdf,.cbz,.epub,.txt,.md,.markdown,.mp3,.m4a,.m4b,.aac,.ogg,.oga,.opus,.wav,.flac,.mp4,.m4v,.webm,.mov,audio/*,video/*" multiple class="hidden">
       <div class="usermenu">
         <div class="avatar" id="avatar"><span id="avatar-initial">R</span></div>
@@ -154,6 +155,31 @@
 
 <!-- ============ DROP ZONE ============ -->
 <div id="drop"><div class="box"><div class="smallcaps" data-i18n="drop.kicker">Add to your library</div><h3 data-i18n="drop.body">Drop PDF files to shelve them</h3></div></div>
+
+<div id="coll-picker" class="modal-overlay hidden" role="dialog" aria-modal="true">
+  <div class="settings-card">
+    <div class="smallcaps" data-i18n="coll.assignTitle">Add to collections</div>
+    <div id="coll-picker-list"></div>
+    <div class="coll-picker-actions">
+      <button class="mast-btn" id="coll-picker-cancel" data-i18n="clip.close">Close</button>
+      <button class="mast-btn brass" id="coll-picker-save" data-i18n="coll.save">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="link-sheet" class="modal-overlay hidden" role="dialog" aria-modal="true">
+  <div class="settings-card">
+    <div class="smallcaps" data-i18n="media.link.tabLink">Link</div>
+    <div class="field"><label data-i18n="media.link.url">Media URL</label><input id="link-url" type="url" data-i18n-placeholder="media.link.urlPh" placeholder="https://…"></div>
+    <div class="field"><label data-i18n="media.link.titleField">Title</label><input id="link-title" type="text"></div>
+    <div class="field"><label data-i18n="media.link.authorField">Author</label><input id="link-author" type="text"></div>
+    <div class="seg" id="link-kind"><button data-kind="audio" class="active" data-i18n="media.link.kindAudio">Audio</button><button data-kind="video" data-i18n="media.link.kindVideo">Video</button></div>
+    <div class="link-actions">
+      <button class="mast-btn" id="link-cancel" data-i18n="clip.close">Close</button>
+      <button class="mast-btn brass" id="link-add" data-i18n="media.link.add">Add link</button>
+    </div>
+  </div>
+</div>
 
 <!-- ============ USER SETTINGS ============ -->
 <div id="settings" class="hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">

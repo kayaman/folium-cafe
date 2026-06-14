@@ -1280,6 +1280,18 @@ function ingestMedia(name: string, format: 'audio' | 'video', mime?: string): Bo
   };
 }
 
+// Linked external media: a library item backed by an https stream URL, no bytes.
+// `url`/`provider` ride through dbPut() → POST /api/books, which skips the S3 PUT.
+function ingestLinkedMedia(url: string, title: string, author: string, format: 'audio' | 'video'): Book {
+  let host = ''; try { host = new URL(url).hostname.replace(/^www\./, ''); } catch { /* validated by caller */ }
+  return {
+    id: uid(), title: title.trim() || host || t('lib.unknown'), author: author.trim(),
+    fileName: url, data: new ArrayBuffer(0),
+    numPages: 1, currentPage: 1, cover: null,
+    addedAt: Date.now(), lastReadAt: 0, format, url, provider: host || null,
+  };
+}
+
 async function ingest(file: File | { name: string; buf: ArrayBuffer; type?: string }): Promise<Book | null> {
   const name = (file as any).name as string;
   try {
@@ -1360,11 +1372,13 @@ function coverMarkup(b: Book): string {
         <div class="grule"></div>
         <div class="ga">${t('note.kind')}</div>
       </div>` +
+      `<button class="cardmenu" data-menu="${b.id}" title="${t('card.menu')}">⋮</button>` +
       `<button class="del" data-del="${b.id}" title="${t('note.delete')}">${ICON.trash}</button></div>`;
   }
   if (b.cover) {
     return `<div class="cover" style="background-image:url('${b.cover}')"><span class="spine"></span>${offdot}` +
       (b.lastReadAt ? `<span class="pct">${pct(b)}%</span>` : '') +
+      `<button class="cardmenu" data-menu="${b.id}" title="${t('card.menu')}">⋮</button>` +
       `<button class="del" data-del="${b.id}" title="${t('lib.remove')}">${ICON.trash}</button></div>`;
   }
   const initials = (b.author || '').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -1375,6 +1389,7 @@ function coverMarkup(b: Book): string {
         <div class="ga">${escapeHtml(b.author || initials) || t('lib.unknown')}</div>
       </div>` +
     (b.lastReadAt ? `<span class="pct">${pct(b)}%</span>` : '') +
+    `<button class="cardmenu" data-menu="${b.id}" title="${t('card.menu')}">⋮</button>` +
     `<button class="del" data-del="${b.id}" title="${t('lib.remove')}">${ICON.trash}</button></div>`;
 }
 
@@ -1408,6 +1423,7 @@ function renderList(list: Book[]): string {
         <div class="rprog"></div>
         <div class="rwhen">${relTime(b.lastReadAt)}</div>
         <button class="rresume" data-open="${b.id}">${ICON.note}${t('note.edit')}</button>
+        <button class="del rmenu" data-menu="${b.id}" title="${t('card.menu')}">⋮</button>
         <button class="del rmenu" data-del="${b.id}" title="${t('note.delete')}">${ICON.trash}</button>
       </div>`;
     }
@@ -1420,6 +1436,7 @@ function renderList(list: Book[]): string {
       <div class="rprog"><div class="progress"><i style="width:${pct(b)}%"></i></div><span class="progress-num">${b.lastReadAt ? pct(b) + '%' : t('lib.new')}</span></div>
       <div class="rwhen">${relTime(b.lastReadAt)}</div>
       <button class="rresume" data-open="${b.id}">${ICON.play}${b.lastReadAt ? t('lib.resume') : t('lib.read')}</button>
+      <button class="del rmenu" data-menu="${b.id}" title="${t('card.menu')}">⋮</button>
       <button class="del rmenu" data-del="${b.id}" title="${t('lib.remove')}">${ICON.trash}</button>
     </div>`;
   }).join('');
@@ -1468,17 +1485,110 @@ function renderLibrary(): void {
     if (en) en.addEventListener('click', () => createNote());
     return;
   }
-  // newest-first base order
-  const list = books.slice().sort((a, b) => (b.lastReadAt || b.addedAt) - (a.lastReadAt || a.addedAt));
-  if (viewMode === 'shelf') body.innerHTML = renderShelf(list);
-  else if (viewMode === 'grid') body.innerHTML = renderGrid(list);
-  else body.innerHTML = renderList(list);
+  // newest-first base order, then narrow to the active collection (if any)
+  let list = books.slice().sort((a, b) => (b.lastReadAt || b.addedAt) - (a.lastReadAt || a.addedAt));
+  if (activeCollection) list = list.filter(b => (b.collections || []).includes(activeCollection!));
+  let view: string;
+  if (!list.length && activeCollection) view = `<div class="empty"><p>${t('coll.empty')}</p></div>`;
+  else if (viewMode === 'shelf') view = renderShelf(list);
+  else if (viewMode === 'grid') view = renderGrid(list);
+  else view = renderList(list);
+  body.innerHTML = renderChips() + view;
+}
+
+// The collection filter bar: All · <each collection> · (+) · edit tools for the
+// active chip. Rendered into #lib-body each renderLibrary() so it reflects state.
+function renderChips(): string {
+  const chip = (id: string | null, label: string) =>
+    `<button class="chip${activeCollection === id ? ' active' : ''}" data-chip="${id ?? ''}">${escapeHtml(label)}</button>`;
+  const editTools = activeCollection
+    ? `<button class="chip-edit" data-chip-rename="${activeCollection}" title="${t('coll.rename')}">${ICON.note}</button>` +
+      `<button class="chip-edit" data-chip-del="${activeCollection}" title="${t('coll.delete')}">${ICON.trash}</button>`
+    : '';
+  return `<div class="chipbar">` +
+    chip(null, t('coll.all')) +
+    collections.map(c => chip(c.id, c.name || t('coll.new'))).join('') +
+    `<button class="chip chip-add" data-chip-new title="${t('coll.new')}">+</button>` +
+    editTools +
+    `</div>`;
+}
+
+async function createCollectionFlow(): Promise<void> {
+  const name = (window.prompt(t('coll.namePrompt')) || '').trim();
+  if (!name) return;
+  try {
+    const c = await apiCreateCollection(name);
+    collections.push(c); activeCollection = c.id; localStorage.setItem(LS.activeCollection, c.id);
+    renderLibrary();
+  } catch (e) { if (e instanceof ApiNetworkError) toast(t('toast.offlineRetry')); else throw e; }
+}
+async function renameCollectionFlow(id: string): Promise<void> {
+  const cur = collections.find(c => c.id === id); if (!cur) return;
+  const name = (window.prompt(t('coll.renamePrompt'), cur.name) || '').trim();
+  if (!name || name === cur.name) return;
+  try { await apiRenameCollection(id, name); cur.name = name; renderLibrary(); }
+  catch (e) { if (e instanceof ApiNetworkError) toast(t('toast.offlineRetry')); else throw e; }
+}
+async function deleteCollectionFlow(id: string): Promise<void> {
+  const cur = collections.find(c => c.id === id); if (!cur) return;
+  if (!window.confirm(t('coll.confirmDelete', { name: cur.name }))) return;
+  try { await apiDeleteCollection(id); }
+  catch (e) { if (e instanceof ApiNetworkError) { toast(t('toast.offlineRetry')); return; } throw e; }
+  collections = collections.filter(c => c.id !== id);
+  for (const b of books) if (b.collections) b.collections = b.collections.filter(x => x !== id);
+  if (activeCollection === id) { activeCollection = null; localStorage.removeItem(LS.activeCollection); }
+  renderLibrary();
+}
+
+// Per-book collection assignment: a checklist modal (#coll-picker) that PUTs the
+// book's full membership set. Opened from a card's ⋮ button.
+let pickerBookId: string | null = null;
+function openCollectionPicker(bookId: string): void {
+  const b = books.find(x => x.id === bookId); if (!b) return;
+  pickerBookId = bookId;
+  const cur = new Set(b.collections || []);
+  el('coll-picker-list').innerHTML = collections.length
+    ? collections.map(c => `<label class="coll-check"><input type="checkbox" value="${c.id}" ${cur.has(c.id) ? 'checked' : ''}> ${escapeHtml(c.name || t('coll.new'))}</label>`).join('')
+    : `<p class="coll-none">${t('coll.none')}</p>`;
+  el('coll-picker').classList.remove('hidden');
+}
+function closeCollectionPicker(): void { el('coll-picker').classList.add('hidden'); pickerBookId = null; }
+async function saveCollectionPicker(): Promise<void> {
+  if (!pickerBookId) return;
+  const ids = Array.from(el('coll-picker-list').querySelectorAll('input:checked')).map(i => (i as HTMLInputElement).value);
+  try { await apiSetBookCollections(pickerBookId, ids); }
+  catch (e) { if (e instanceof ApiNetworkError) { toast(t('toast.offlineRetry')); return; } throw e; }
+  const b = books.find(x => x.id === pickerBookId); if (b) b.collections = ids;
+  closeCollectionPicker();
+  renderLibrary();
+}
+function wireCollectionPicker(): void {
+  el('coll-picker-save').addEventListener('click', saveCollectionPicker);
+  el('coll-picker-cancel').addEventListener('click', closeCollectionPicker);
+  el('coll-picker').addEventListener('click', (e) => { if (e.target === el('coll-picker')) closeCollectionPicker(); });
 }
 
 // delegated clicks on library
 function wireLibrary(): void {
   el('library').addEventListener('click', (e) => {
     const t = e.target as HTMLElement;
+    const chipNew = t.closest('[data-chip-new]');
+    if (chipNew) { e.preventDefault(); createCollectionFlow(); return; }
+    const chipRen = t.closest('[data-chip-rename]') as HTMLElement | null;
+    if (chipRen) { e.preventDefault(); renameCollectionFlow(chipRen.dataset.chipRename!); return; }
+    const chipDel = t.closest('[data-chip-del]') as HTMLElement | null;
+    if (chipDel) { e.preventDefault(); deleteCollectionFlow(chipDel.dataset.chipDel!); return; }
+    const chipBtn = t.closest('[data-chip]') as HTMLElement | null;
+    if (chipBtn) {
+      e.preventDefault();
+      activeCollection = chipBtn.dataset.chip || null;
+      if (activeCollection) localStorage.setItem(LS.activeCollection, activeCollection);
+      else localStorage.removeItem(LS.activeCollection);
+      renderLibrary();
+      return;
+    }
+    const menu = t.closest('[data-menu]') as HTMLElement | null;
+    if (menu) { e.preventDefault(); e.stopPropagation(); openCollectionPicker(menu.dataset.menu!); return; }
     const del = t.closest('[data-del]') as HTMLElement | null;
     if (del) { e.preventDefault(); e.stopPropagation(); confirmDelete(del.dataset.del!); return; }
     const open = t.closest('[data-open]') as HTMLElement | null;
@@ -3218,6 +3328,34 @@ function wireUpload(): void {
   });
 }
 
+// ---------- linked media (add by URL) ----------
+let linkKind: 'audio' | 'video' = 'audio';
+async function submitLinkedMedia(): Promise<void> {
+  const url = (el<HTMLInputElement>('link-url').value || '').trim();
+  let ok = false; try { ok = new URL(url).protocol === 'https:'; } catch { /* invalid */ }
+  if (!ok) { toast(t('media.link.badUrl')); return; }
+  const b = ingestLinkedMedia(url, el<HTMLInputElement>('link-title').value, el<HTMLInputElement>('link-author').value, linkKind);
+  try { await dbPut(b); }
+  catch (e) {
+    if (e instanceof ApiNetworkError) { toast(t('toast.offlineAdd')); return; }
+    toast(t('toast.cantRead', { name: url })); return;
+  }
+  b.data = new ArrayBuffer(0); books.unshift(b);
+  el('link-sheet').classList.add('hidden');
+  renderLibrary(); toast(t('media.link.added'));
+}
+function wireLinkSheet(): void {
+  el('btn-link').addEventListener('click', () => el('link-sheet').classList.remove('hidden'));
+  el('link-cancel').addEventListener('click', () => el('link-sheet').classList.add('hidden'));
+  el('link-add').addEventListener('click', submitLinkedMedia);
+  el('link-sheet').addEventListener('click', (e) => { if (e.target === el('link-sheet')) el('link-sheet').classList.add('hidden'); });
+  el('link-kind').addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('button') as HTMLElement | null; if (!btn) return;
+    linkKind = btn.dataset.kind as 'audio' | 'video';
+    el('link-kind').querySelectorAll('button').forEach(x => x.classList.toggle('active', x === btn));
+  });
+}
+
 // ============================================================
 //  BOOT
 // ============================================================
@@ -3375,6 +3513,8 @@ function init(): void {
   wireViewSwitch();
   wireLibrary();
   wireUpload();
+  wireCollectionPicker();
+  wireLinkSheet();
   wireReader();
   wirePwa();
   // restore session
