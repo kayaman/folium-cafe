@@ -2357,6 +2357,14 @@ class EpubAdapter implements DocAdapter {
     this.cfi = startCfi;
   }
 
+  applyType(scale: number, lineHeight: number): void {
+    if (!this.rendition) return;
+    try {
+      this.rendition.themes.fontSize(Math.round(scale * 100) + '%');
+      this.rendition.themes.override('line-height', String(lineHeight), true);
+    } catch { /* themes API best-effort */ }
+  }
+
   async render(pos: DocPos, ctx: RenderCtx, _keepScroll: boolean): Promise<void> {
     const token = ctx.token;
     await this.epub.ready;
@@ -2384,6 +2392,7 @@ class EpubAdapter implements DocAdapter {
       this.rendition.on('relocated', this.onRelocated);
       this.rendition.on('selected', this.onSelected);
       await this.rendition.display(pos.cfi || this.cfi || undefined);
+      this.applyType(readerFontScale, readerLineHeight);
       this.displayed = true;
       this.generateLocations();
     } else {
