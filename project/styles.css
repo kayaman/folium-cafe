@@ -34,6 +34,8 @@
   --maxw:1280px;
   --t-fast:.15s; --t-med:.22s; --t-slow:.32s; --ease:cubic-bezier(.2,.8,.2,1);
   --prog-grad:linear-gradient(90deg,var(--brass),var(--leather-2));
+  --reader-font-scale:1;
+  --reader-line-height:1.75;
 }
 
 *{box-sizing:border-box}
@@ -327,9 +329,8 @@ button{font-family:inherit;cursor:pointer}
 .doc-scroll{width:min(820px,100%);background:var(--paper,#fdfaf2);color:var(--ink,#2a2018);
   padding:46px 40px 96px;border-radius:2px;
   box-shadow:0 24px 60px -18px rgba(0,0,0,.7),0 2px 0 rgba(255,255,255,.05)}
-.doc-scroll.markdown-body{font-family:var(--read);font-size:18px;line-height:1.75}
-.doc-plain pre{white-space:pre-wrap;word-wrap:break-word;margin:0;
-  font-family:var(--read);font-size:17px;line-height:1.7;color:inherit}
+.doc-scroll.markdown-body{font-family:var(--read);font-size:calc(18px * var(--reader-font-scale));line-height:var(--reader-line-height)}
+.doc-plain pre{white-space:pre-wrap;word-wrap:break-word;margin:0;font-family:var(--read);font-size:calc(17px * var(--reader-font-scale));line-height:var(--reader-line-height);color:inherit}
 @media (max-width:640px){.doc-scroll{padding:30px 20px 80px}}
 
 /* media formats (audio/video): a centered native player, online-only */
@@ -581,7 +582,7 @@ body{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-ri
 .markdown-body{font-family:var(--read);font-size:18px;line-height:1.75;color:var(--ink);word-wrap:break-word}
 .markdown-body h1,.markdown-body h2,.markdown-body h3,.markdown-body h4{
   font-family:var(--display);font-weight:700;color:var(--leather);line-height:1.2;margin:1.4em 0 .5em}
-.markdown-body h1{font-size:30px}.markdown-body h2{font-size:24px}.markdown-body h3{font-size:20px}
+.markdown-body h1{font-size:1.667em}.markdown-body h2{font-size:1.333em}.markdown-body h3{font-size:1.111em}
 .markdown-body p{margin:0 0 1em}
 .markdown-body a{color:var(--leather-2);text-decoration:underline}
 .markdown-body strong{font-weight:600}.markdown-body em{font-style:italic}
