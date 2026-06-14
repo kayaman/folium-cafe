@@ -83,6 +83,16 @@ sw.addEventListener('fetch', (e: FetchEvent) => {
             } })
           );
         }
+        // shared text/links (no file): stash a synthetic record the app drains the same way
+        const title = (form.get('title') as string) || '';
+        const text  = (form.get('text')  as string) || '';
+        const link  = (form.get('url')   as string) || '';
+        if (title || text || link) {
+          await cache.put(
+            '/shared-link/' + Date.now() + '-' + Math.random().toString(16).slice(2),
+            new Response(JSON.stringify({ title, text, url: link }), { headers: { 'content-type': 'application/json' } })
+          );
+        }
       } catch (err) {
         console.warn('share-target intake failed', err);
       }

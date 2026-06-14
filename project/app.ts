@@ -1,6 +1,13 @@
 /* ============================================================
    FOLIUM CAFÉ — app.ts  (so you remember the page you were on)
    ============================================================ */
+
+// File Handling API (open-with). Minimal ambient types — this file is a script,
+// so these interfaces live in the global scope and merge with the lib DOM types.
+interface LaunchParams { files?: FileSystemFileHandle[] }
+interface LaunchQueue { setConsumer(cb: (p: LaunchParams) => void): void }
+interface Window { launchQueue?: LaunchQueue }
+
 (() => {
 
 // ---------- pdf.js ----------
@@ -237,6 +244,11 @@ const EN = {
   'toast.shelving.other': 'Shelving {n} books…',
   'toast.shelvingShared.one': 'Shelving your shared book…',
   'toast.shelvingShared.other': 'Shelving {n} shared books…',
+  'share.note.untitled': 'Shared note',
+  'share.drain.allFailed': 'Nothing could be added',
+  'share.drain.partial': 'Shelved {ok}, {failed} couldn’t be added',
+  'share.waiting.one': '1 item waiting — sign in to shelve it',
+  'share.waiting.other': '{n} items waiting — sign in to shelve them',
   'toast.added': 'Added to your library',
   'toast.offlineRetry': 'You’re offline — try again when you’re back online',
   'toast.removed': 'Removed from library',
@@ -375,6 +387,11 @@ const PT: Record<MsgKey, string> = {
   'toast.shelving.other': 'Colocando {n} livros na estante…',
   'toast.shelvingShared.one': 'Colocando o livro compartilhado na estante…',
   'toast.shelvingShared.other': 'Colocando {n} livros compartilhados na estante…',
+  'share.note.untitled': 'Nota compartilhada',
+  'share.drain.allFailed': 'Nada pôde ser adicionado',
+  'share.drain.partial': 'Adicionados {ok}, {failed} não puderam ser adicionados',
+  'share.waiting.one': '1 item aguardando — entre para colocá-lo na estante',
+  'share.waiting.other': '{n} itens aguardando — entre para colocá-los na estante',
   'toast.added': 'Adicionado à sua biblioteca',
   'toast.offlineRetry': 'Você está offline — tente novamente quando voltar a ficar online',
   'toast.removed': 'Removido da biblioteca',
@@ -512,6 +529,11 @@ const ES: Record<MsgKey, string> = {
   'toast.shelving.other': 'Colocando {n} libros en el estante…',
   'toast.shelvingShared.one': 'Colocando el libro compartido en el estante…',
   'toast.shelvingShared.other': 'Colocando {n} libros compartidos en el estante…',
+  'share.note.untitled': 'Nota compartida',
+  'share.drain.allFailed': 'No se pudo añadir nada',
+  'share.drain.partial': 'Añadidos {ok}, {failed} no se pudieron añadir',
+  'share.waiting.one': '1 elemento en espera — inicia sesión para añadirlo',
+  'share.waiting.other': '{n} elementos en espera — inicia sesión para añadirlos',
   'toast.added': 'Añadido a tu biblioteca',
   'toast.offlineRetry': 'Estás sin conexión: inténtalo de nuevo cuando vuelvas a estar en línea',
   'toast.removed': 'Eliminado de la biblioteca',
@@ -3449,6 +3471,7 @@ function wireAuth(): void {
     (el('login-pass') as HTMLInputElement).value = '';
     booted = false;
     books = [];
+    void showWaitingCue();
   });
   el('brand').addEventListener('click', () => { if (el('reader').classList.contains('show')) closeReader(); });
 }
@@ -3544,6 +3567,7 @@ async function boot(): Promise<void> {
   }
   renderLibrary();
   await handleLaunchParams();
+  await drainLaunchFiles();   // shelve files opened with Folium before sign-in
 }
 
 // Deep links: ?continue=1 (app shortcut) and ?shared=1 (share_target redirect).
@@ -3559,29 +3583,137 @@ async function handleLaunchParams(): Promise<void> {
   }
 }
 
-// Files received via the OS share sheet wait in the shared cache (put there by
-// the service worker) until someone is signed in to shelve them. Any supported
-// format is accepted: the stored Response carries the file's real content-type,
-// so ingest() routes it by detectFormat (extension first, MIME as tiebreaker).
+// If a shared URL points at an audio/video file (by its path extension), report
+// which media format it is — otherwise null (the URL becomes a note instead).
+function mediaFormatForUrl(url: string): 'audio' | 'video' | null {
+  try {
+    const p = new URL(url).pathname;
+    const f = detectFormat(p);
+    return (f === 'audio' || f === 'video') ? f : null;
+  } catch { return null; }
+}
+
+// Shelve a shared media URL as a url-backed linked-media Book (no bytes stored).
+function linkedMediaFromShared(url: string, fmt: 'audio' | 'video', title?: string): Promise<Book> {
+  return (async () => {
+    const b = ingestLinkedMedia(url, (title || '').trim(), '', fmt);
+    await dbPut(b);
+    b.data = new ArrayBuffer(0);
+    return b;
+  })();
+}
+
+// Shelve a shared link/text payload as a markdown note. The body is the trimmed
+// text and url joined by a blank line (whichever are present); the title falls
+// back to a derived heading, then to a localized default. Stored verbatim.
+async function noteFromShared(rec: { title?: string; text?: string; url?: string }): Promise<Book> {
+  const text = (rec.text || '').trim();
+  const url = (rec.url || '').trim();
+  const body = [text, url].filter(Boolean).join('\n\n');
+  const title = (rec.title || '').trim() || deriveNoteTitle(body) || t('share.note.untitled');
+  // id MUST start with 'n' so the backend's isNoteId() recognizes it.
+  const id = 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const note: Book = {
+    id, title, author: '', fileName: '', data: new ArrayBuffer(0),
+    numPages: 1, currentPage: 1, cover: null,
+    addedAt: Date.now(), lastReadAt: 0, format: 'note', noteFormat: 'markdown',
+  };
+  await dbCreateNote(stripData(note));
+  if (body) await dbPutNote(id, body);
+  return note;
+}
+
+// Items received via the OS share sheet wait in the shared cache (put there by
+// the service worker) until someone is signed in to shelve them. Files (`/shared/`
+// keys) carry the real content-type so ingest() routes them by detectFormat;
+// shared links/text (`/shared-link/` keys, JSON body {title,text,url}) become a
+// linked-media Book when the URL is a media file, otherwise a markdown note.
+// Every item is deleted whether it shelved or not, so a poison item can't
+// re-trip on every launch.
 async function drainSharedCache(): Promise<void> {
   try {
     const cache = await caches.open(SHARED_CACHE);
     const keys = await cache.keys();
     if (!keys.length) return;
     toast(tn('toast.shelvingShared', keys.length));
+    let ok = 0, failed = 0;
     for (const req of keys) {
-      const res = await cache.match(req);
-      if (!res) continue;
-      const name = decodeURIComponent(res.headers.get('x-file-name') || '') || 'Shared';
-      const type = res.headers.get('content-type') || undefined;
-      const buf = await res.arrayBuffer();
-      const b = await ingest({ name, buf, type });
-      if (b) books.unshift(b);
+      try {
+        const res = await cache.match(req);
+        if (!res) { await cache.delete(req); continue; }
+        const path = new URL(req.url).pathname;
+        let b: Book | null;
+        if (path.startsWith('/shared-link/')) {
+          const rec = await res.json();
+          const mf = rec.url ? mediaFormatForUrl(rec.url) : null;
+          b = (rec.url && mf) ? await linkedMediaFromShared(rec.url, mf, rec.title) : await noteFromShared(rec);
+        } else {
+          const name = decodeURIComponent(res.headers.get('x-file-name') || '') || 'Shared';
+          const type = res.headers.get('content-type') || undefined;
+          const buf = await res.arrayBuffer();
+          b = await ingest({ name, buf, type });
+        }
+        if (b) { books.unshift(b); ok++; } else failed++;
+      } catch (e) {
+        console.warn('shared item failed', e);
+        failed++;
+      }
       await cache.delete(req);
     }
     renderLibrary();
-    toast(t('toast.added'));
+    if (failed === 0) toast(t('toast.added'));
+    else if (ok === 0) toast(t('share.drain.allFailed'), { error: true });
+    else toast(t('share.drain.partial', { ok, failed }), { error: true });
   } catch (e) { console.warn('shared intake failed', e); }
+}
+
+// ---------- pre-login waiting cue ----------
+// How many items are parked in the shared cache awaiting a signed-in user.
+async function sharedWaitingCount(): Promise<number> {
+  try { return (await (await caches.open(SHARED_CACHE)).keys()).length; } catch { return 0; }
+}
+
+// Show/hide the login-card hint telling the user shared items are waiting.
+async function showWaitingCue(): Promise<void> {
+  const n = await sharedWaitingCount();
+  const node = el('login-waiting');
+  if (n > 0) { node.textContent = tn('share.waiting', n); node.classList.remove('hidden'); }
+  else node.classList.add('hidden');
+}
+
+// ---------- launchQueue / file_handlers (open-with) ----------
+// Files opened with Folium from the OS (file_handlers) arrive via launchQueue.
+// If opened before sign-in, they wait here until boot() drains them post-auth.
+let pendingLaunchFiles: FileSystemFileHandle[] = [];
+function wireLaunchQueue(): void {
+  if (!window.launchQueue) return;
+  window.launchQueue.setConsumer(p => {
+    const files = p.files || [];
+    if (!files.length) return;
+    pendingLaunchFiles.push(...files);
+    if (booted) void drainLaunchFiles();
+  });
+}
+async function drainLaunchFiles(): Promise<void> {
+  if (!pendingLaunchFiles.length) return;
+  const handles = pendingLaunchFiles;
+  pendingLaunchFiles = [];
+  toast(tn('toast.shelving', handles.length));
+  let ok = 0, failed = 0;
+  for (const h of handles) {
+    try {
+      const file = await (h as any).getFile() as File;
+      const b = await ingest(file);
+      if (b) { books.unshift(b); ok++; } else failed++;
+    } catch (e) {
+      console.warn('launch file failed', e);
+      failed++;
+    }
+  }
+  renderLibrary();
+  if (failed === 0) toast(t('toast.added'));
+  else if (ok === 0) toast(t('share.drain.allFailed'), { error: true });
+  else toast(t('share.drain.partial', { ok, failed }), { error: true });
 }
 
 // ============================================================
@@ -3675,6 +3807,7 @@ function init(): void {
     el('app').classList.add('hidden');
     el('login').classList.remove('hidden');
     booted = false;
+    void showWaitingCue();
   };
   wireViewSwitch();
   wireLibrary();
@@ -3683,6 +3816,7 @@ function init(): void {
   wireLinkSheet();
   wireReader();
   wirePwa();
+  wireLaunchQueue();
   // restore session
   const saved = localStorage.getItem(LS.user);
   if (saved) {
@@ -3691,6 +3825,8 @@ function init(): void {
       showApp(u.name || t('common.reader'));
       boot();
     } catch { /* show login */ }
+  } else {
+    void showWaitingCue();   // login is visible — surface any parked shared items
   }
 }
 
