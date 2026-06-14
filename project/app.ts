@@ -104,8 +104,9 @@ interface DocCaps {
 interface DocPos {
   page?: number;
   cfi?: string;
-  fraction?: number;
+  fraction?: number;   // whole-document scroll (txt/md)
   seconds?: number;
+  frac?: number;       // within-page scroll fraction 0..1 (pdf/cbz), zoom-independent
 }
 
 // Everything an adapter needs to paint itself into the reader column.
@@ -147,6 +148,7 @@ interface Book {
   // Generalized reading position for non-paged formats (scroll/media). Paged
   // formats keep using `currentPage`; scroll formats persist `{kind:'fraction'}`.
   progress?: { kind: 'page' | 'cfi' | 'fraction' | 'seconds'; value: number | string };
+  posFrac?: number;    // synced within-page fraction for paged formats
   collections?: string[];     // collection ids this book belongs to
   url?: string;               // linked external media: https stream URL (no stored bytes)
   provider?: string | null;   // linked media: free-text provider passthrough
@@ -845,13 +847,15 @@ async function refreshOfflineIds(): Promise<void> {
 // formats queue `{currentPage}`; scroll/media formats queue a generalized
 // `{progress:{kind,value}}` — the body is shaped here so flush is a dumb replay.
 type ProgressBody =
-  | { currentPage: number; lastReadAt: number }
+  | { currentPage: number; frac?: number; lastReadAt: number }
   | { progress: { kind: 'page' | 'cfi' | 'fraction' | 'seconds'; value: number | string }; lastReadAt: number };
 
 function progressBodyFor(b: Book): ProgressBody {
   const lastReadAt = b.lastReadAt || Date.now();
   if (b.progress) return { progress: b.progress, lastReadAt };
-  return { currentPage: b.currentPage, lastReadAt };
+  const body: { currentPage: number; frac?: number; lastReadAt: number } = { currentPage: b.currentPage, lastReadAt };
+  if (typeof b.posFrac === 'number') body.frac = b.posFrac;
+  return body;
 }
 
 function enqueueProgress(b: Book): void {
@@ -1171,6 +1175,8 @@ async function flushNoteQueue(): Promise<void> {
 const LS = {
   user: 'folium.user',
   view: 'folium.view',
+  zoom: 'folium.zoom',
+  lastZoom: 'folium.lastZoom',
   width: 'folium.readerWidth',
   pdfLru: 'folium.pdfLru',
   progressQueue: 'folium.progressQueue',
@@ -1258,6 +1264,47 @@ function relTime(ts: number): string {
   if (d < day) return rtf.format(-Math.floor(d / h), 'hour');
   if (d < day * 7) return rtf.format(-Math.floor(d / day), 'day');
   return new Date(ts).toLocaleDateString(locale, { month: 'short', day: 'numeric' });
+}
+// Within-page scroll as a fraction of the page's scrollable height (zoom/screen
+// independent). Mirrors ScrollTextAdapter's whole-doc math, applied per page.
+function fracFromStage(stage: HTMLElement): number {
+  const max = stage.scrollHeight - stage.clientHeight;
+  return max > 0 ? Math.min(Math.max(stage.scrollTop / max, 0), 1) : 0;
+}
+function restoreFracToStage(stage: HTMLElement, frac: number): void {
+  requestAnimationFrame(() => {
+    const max = stage.scrollHeight - stage.clientHeight;
+    stage.scrollTop = max > 0 ? Math.min(Math.max(frac, 0), 1) * max : 0;
+  });
+}
+// Debounced within-page scroll capture for paged adapters. Returns a detach fn.
+function attachPagedScroll(stage: HTMLElement): () => void {
+  let timer = 0 as any;
+  const handler = () => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      setReaderPos({ page: reader.pos.page, frac: fracFromStage(stage) });
+      persistPos();
+    }, 200);
+  };
+  stage.addEventListener('scroll', handler, { passive: true });
+  return () => { stage.removeEventListener('scroll', handler); window.clearTimeout(timer); };
+}
+// Per-book zoom, per device. LRU-capped so the map can't grow without bound.
+function getBookZoom(id: string): number | null {
+  try {
+    const m = JSON.parse(localStorage.getItem(LS.zoom) || '{}');
+    return typeof m[id] === 'number' ? m[id] : null;
+  } catch { return null; }
+}
+function setBookZoom(id: string, z: number): void {
+  let m: Record<string, number>;
+  try { m = JSON.parse(localStorage.getItem(LS.zoom) || '{}'); } catch { m = {}; }
+  delete m[id]; m[id] = z;
+  const keys = Object.keys(m);
+  if (keys.length > 50) for (const k of keys.slice(0, keys.length - 50)) delete m[k];
+  localStorage.setItem(LS.zoom, JSON.stringify(m));
+  localStorage.setItem(LS.lastZoom, String(z));
 }
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as any)[c]);
@@ -1854,6 +1901,7 @@ class PdfAdapter implements DocAdapter {
   };
   private doc: any;
   private canvas: HTMLCanvasElement | null = null;
+  private detachScroll: (() => void) | null = null;
 
   constructor(doc: any) { this.doc = doc; }
 
@@ -1881,6 +1929,9 @@ class PdfAdapter implements DocAdapter {
     if (!out) return; // superseded
     this.canvas = out.canvas;
     renderTextLayerFor(page, out.wrap, out.cssScale, token);
+    this.detachScroll?.();
+    restoreFracToStage(ctx.stage, pos.frac ?? 0);
+    this.detachScroll = attachPagedScroll(ctx.stage);
   }
 
   toBarPercent(pos: DocPos): number {
@@ -1894,7 +1945,7 @@ class PdfAdapter implements DocAdapter {
 
   currentCanvas(): HTMLCanvasElement | null { return this.canvas; }
 
-  destroy(): void { this.doc = null; this.canvas = null; }
+  destroy(): void { this.detachScroll?.(); this.detachScroll = null; this.doc = null; this.canvas = null; }
 }
 
 // Natural-order comparator for archive entry names so page 2 sorts before
@@ -1955,6 +2006,7 @@ class CbzAdapter implements DocAdapter {
   };
   private pages: { name: string; data: Uint8Array }[];
   private canvas: HTMLCanvasElement | null = null;
+  private detachScroll: (() => void) | null = null;
 
   constructor(pages: { name: string; data: Uint8Array }[]) { this.pages = pages; }
 
@@ -1976,6 +2028,9 @@ class CbzAdapter implements DocAdapter {
     );
     if (!out) return; // superseded
     this.canvas = out.canvas;
+    this.detachScroll?.();
+    restoreFracToStage(ctx.stage, pos.frac ?? 0);
+    this.detachScroll = attachPagedScroll(ctx.stage);
   }
 
   toBarPercent(pos: DocPos): number {
@@ -1986,7 +2041,7 @@ class CbzAdapter implements DocAdapter {
     return { current: String(pos.page ?? 1), total: String(this.total) };
   }
   currentCanvas(): HTMLCanvasElement | null { return this.canvas; }
-  destroy(): void { this.pages = []; this.canvas = null; }
+  destroy(): void { this.detachScroll?.(); this.detachScroll = null; this.pages = []; this.canvas = null; }
 }
 
 // A plain-text or Markdown document rendered as one scrollable column. No
@@ -2451,8 +2506,8 @@ async function openBook(id: string): Promise<void> {
   reader.book = b;
   // Tentative paged position; for scroll formats it's replaced with a fraction
   // once the adapter (and thus the mode) is known, just below.
-  setReaderPos({ page: Math.min(Math.max(1, b.currentPage || 1), b.numPages) });
-  reader.zoom = 1;
+  setReaderPos({ page: Math.min(Math.max(1, b.currentPage || 1), b.numPages), frac: b.posFrac ?? 0 });
+  reader.zoom = getBookZoom(id) ?? (Number(localStorage.getItem(LS.lastZoom)) || 1);
   reader.clips = [];
   exitCapture();
   el('r-title-t').textContent = b.title;
@@ -2537,6 +2592,9 @@ async function renderAt(pos: DocPos, keepScroll: boolean): Promise<void> {
   if (!reader.adapter || !reader.book) return;
   if (pos.page != null) {
     pos = { ...pos, page: Math.min(Math.max(1, pos.page), reader.book.numPages) };
+  }
+  if (keepScroll && reader.adapter.caps.canvasPages) {
+    pos = { ...pos, frac: fracFromStage(el('r-stage')) };
   }
   setReaderPos(pos);
   const token = ++reader.renderToken;
@@ -2635,10 +2693,11 @@ function persistPos(): void {
     if (reader.pos.cfi) b.progress = { kind: 'cfi', value: reader.pos.cfi };
   } else if (reader.pos.page != null) {
     b.currentPage = reader.pos.page;
+    b.posFrac = reader.pos.frac ?? 0;
   }
   b.lastReadAt = Date.now();
   const cached = books.find(x => x.id === b.id);
-  if (cached) { cached.currentPage = b.currentPage; cached.progress = b.progress; cached.lastReadAt = b.lastReadAt; }
+  if (cached) { cached.currentPage = b.currentPage; cached.posFrac = b.posFrac; cached.progress = b.progress; cached.lastReadAt = b.lastReadAt; }
   window.clearTimeout(reader.saveTimer);
   reader.saveTimer = window.setTimeout(() => { dbPutProgress(b).catch(() => {}); }, 350);
 }
@@ -3162,15 +3221,14 @@ function wireReader(): void {
     openClipSheet({ text: payload });
   });
 
-  el('r-zoom-in').addEventListener('click', () => { reader.zoom = Math.min(reader.zoom + 0.15, 2.2); renderAt(reader.pos, true); });
-  el('r-zoom-out').addEventListener('click', () => { reader.zoom = Math.max(reader.zoom - 0.15, 0.6); renderAt(reader.pos, true); });
+  el('r-zoom-in').addEventListener('click', () => { reader.zoom = Math.min(reader.zoom + 0.15, 2.2); if (reader.book) setBookZoom(reader.book.id, reader.zoom); renderAt(reader.pos, true); });
+  el('r-zoom-out').addEventListener('click', () => { reader.zoom = Math.max(reader.zoom - 0.15, 0.6); if (reader.book) setBookZoom(reader.book.id, reader.zoom); renderAt(reader.pos, true); });
 
   el('width-seg').addEventListener('click', (e) => {
     const btn = (e.target as HTMLElement).closest('button') as HTMLElement | null;
     if (!btn) return;
     reader.width = btn.dataset.w as 'comfort' | 'full';
     localStorage.setItem(LS.width, reader.width);
-    reader.zoom = 1;
     setWidthButtons();
     renderAt(reader.pos, true);
   });
