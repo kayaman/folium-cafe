@@ -302,6 +302,12 @@ const EN = {
   'media.link.add': 'Add link',
   'media.link.badUrl': 'Enter a valid https URL',
   'media.link.added': 'Linked media added',
+  'confirm.title': 'Please confirm',
+  'confirm.cancel': 'Cancel',
+  'confirm.ok': 'Confirm',
+  'reader.error.title': 'This book would not open',
+  'reader.error.body': 'Something went wrong loading it. Check your connection and try again.',
+  'reader.error.retry': 'Retry',
 } as const;
 type MsgKey = keyof typeof EN;
 
@@ -434,6 +440,12 @@ const PT: Record<MsgKey, string> = {
   'media.link.add': 'Adicionar link',
   'media.link.badUrl': 'Insira uma URL https válida',
   'media.link.added': 'Mídia vinculada adicionada',
+  'confirm.title': 'Confirme, por favor',
+  'confirm.cancel': 'Cancelar',
+  'confirm.ok': 'Confirmar',
+  'reader.error.title': 'Este livro não pôde ser aberto',
+  'reader.error.body': 'Algo deu errado ao carregá-lo. Verifique sua conexão e tente novamente.',
+  'reader.error.retry': 'Tentar de novo',
 };
 
 const ES: Record<MsgKey, string> = {
@@ -565,6 +577,12 @@ const ES: Record<MsgKey, string> = {
   'media.link.add': 'Añadir enlace',
   'media.link.badUrl': 'Introduce una URL https válida',
   'media.link.added': 'Medio enlazado añadido',
+  'confirm.title': 'Confirma, por favor',
+  'confirm.cancel': 'Cancelar',
+  'confirm.ok': 'Confirmar',
+  'reader.error.title': 'Este libro no se pudo abrir',
+  'reader.error.body': 'Algo salió mal al cargarlo. Revisa tu conexión e inténtalo de nuevo.',
+  'reader.error.retry': 'Reintentar',
 };
 
 const DICTS: Record<Locale, Record<MsgKey, string>> = { en: EN, 'pt-BR': PT, es: ES };
@@ -614,12 +632,87 @@ function setLanguage(pref: LangPref): void {
   if (!el('app').classList.contains('hidden')) renderLibrary();
 }
 
-function toast(msg: string): void {
+function toast(msg: string, opts?: { error?: boolean; duration?: number }): void {
   const node = el('toast');
   node.textContent = msg;
+  node.classList.toggle('error', !!opts?.error);
   node.classList.add('show');
+  // Register the click-to-dismiss listener once.
+  if (!(toast as any)._wired) {
+    (toast as any)._wired = true;
+    node.addEventListener('click', () => {
+      window.clearTimeout((toast as any)._t);
+      node.classList.remove('show');
+    });
+  }
+  const duration = opts?.duration ?? (opts?.error ? 4200 : 2200);
   window.clearTimeout((toast as any)._t);
-  (toast as any)._t = window.setTimeout(() => node.classList.remove('show'), 2200);
+  (toast as any)._t = window.setTimeout(() => node.classList.remove('show'), duration);
+}
+
+// Selector for tabbable elements inside an overlay — used by trapFocus/confirmDialog.
+const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+// Focus management for modal overlays: saves the previously-focused element,
+// moves focus into the overlay, and keeps Tab/Shift+Tab cycling within it.
+// Returns a teardown fn that removes the listener and restores focus. Close
+// sites call the teardown stored on the element as (overlay as any)._untrap.
+function trapFocus(overlay: HTMLElement, firstFocus?: HTMLElement): () => void {
+  const prev = document.activeElement as HTMLElement | null;
+  const tabbables = () => Array.from(overlay.querySelectorAll<HTMLElement>(TABBABLE))
+    .filter(e => e.offsetParent !== null || e === overlay);
+  const target = firstFocus || tabbables()[0] || overlay;
+  if (!firstFocus && target === overlay && overlay.tabIndex < 0) overlay.tabIndex = -1;
+  target.focus();
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key !== 'Tab') return;
+    const items = tabbables();
+    if (!items.length) { e.preventDefault(); return; }
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement as HTMLElement;
+    if (e.shiftKey && (active === first || !overlay.contains(active))) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+  };
+  overlay.addEventListener('keydown', onKey);
+  return () => {
+    overlay.removeEventListener('keydown', onKey);
+    if (prev && typeof prev.focus === 'function') prev.focus();
+  };
+}
+
+// Styled replacement for window.confirm(): resolves true on Confirm, false on
+// Cancel / Escape / backdrop click. Wires its listeners on open and tears them
+// all down on resolve, so repeated calls never leak handlers.
+function confirmDialog(message: string): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const overlay = el('confirm-dialog');
+    const ok = el('confirm-ok');
+    const cancel = el('confirm-cancel');
+    el('confirm-msg').textContent = message;
+    overlay.classList.remove('hidden');
+    const untrap = trapFocus(overlay, ok);
+    let done = false;
+    const finish = (val: boolean) => {
+      if (done) return;
+      done = true;
+      ok.removeEventListener('click', onOk);
+      cancel.removeEventListener('click', onCancel);
+      overlay.removeEventListener('click', onBackdrop);
+      document.removeEventListener('keydown', onKey, true);
+      untrap();
+      overlay.classList.add('hidden');
+      resolve(val);
+    };
+    const onOk = () => finish(true);
+    const onCancel = () => finish(false);
+    const onBackdrop = (e: Event) => { if (e.target === overlay) finish(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); finish(false); } };
+    ok.addEventListener('click', onOk);
+    cancel.addEventListener('click', onCancel);
+    overlay.addEventListener('click', onBackdrop);
+    document.addEventListener('keydown', onKey, true);
+  });
 }
 
 // ---------- API client ----------
@@ -1531,7 +1624,7 @@ async function renameCollectionFlow(id: string): Promise<void> {
 }
 async function deleteCollectionFlow(id: string): Promise<void> {
   const cur = collections.find(c => c.id === id); if (!cur) return;
-  if (!window.confirm(t('coll.confirmDelete', { name: cur.name }))) return;
+  if (!await confirmDialog(t('coll.confirmDelete', { name: cur.name }))) return;
   try { await apiDeleteCollection(id); }
   catch (e) { if (e instanceof ApiNetworkError) { toast(t('toast.offlineRetry')); return; } throw e; }
   collections = collections.filter(c => c.id !== id);
@@ -1550,9 +1643,16 @@ function openCollectionPicker(bookId: string): void {
   el('coll-picker-list').innerHTML = collections.length
     ? collections.map(c => `<label class="coll-check"><input type="checkbox" value="${c.id}" ${cur.has(c.id) ? 'checked' : ''}> ${escapeHtml(c.name || t('coll.new'))}</label>`).join('')
     : `<p class="coll-none">${t('coll.none')}</p>`;
-  el('coll-picker').classList.remove('hidden');
+  const picker = el('coll-picker');
+  picker.classList.remove('hidden');
+  (picker as any)._untrap = trapFocus(picker, el('coll-picker-save'));
 }
-function closeCollectionPicker(): void { el('coll-picker').classList.add('hidden'); pickerBookId = null; }
+function closeCollectionPicker(): void {
+  const picker = el('coll-picker');
+  (picker as any)._untrap?.();
+  picker.classList.add('hidden');
+  pickerBookId = null;
+}
 async function saveCollectionPicker(): Promise<void> {
   if (!pickerBookId) return;
   const ids = Array.from(el('coll-picker-list').querySelectorAll('input:checked')).map(i => (i as HTMLInputElement).value);
@@ -1566,6 +1666,9 @@ function wireCollectionPicker(): void {
   el('coll-picker-save').addEventListener('click', saveCollectionPicker);
   el('coll-picker-cancel').addEventListener('click', closeCollectionPicker);
   el('coll-picker').addEventListener('click', (e) => { if (e.target === el('coll-picker')) closeCollectionPicker(); });
+  document.addEventListener('keydown', (e) => {
+    if ((e as KeyboardEvent).key === 'Escape' && !el('coll-picker').classList.contains('hidden')) closeCollectionPicker();
+  });
 }
 
 // delegated clicks on library
@@ -1609,7 +1712,7 @@ function wireLibrary(): void {
 async function confirmDelete(id: string): Promise<void> {
   const b = books.find(x => x.id === id);
   if (!b) return;
-  if (!window.confirm(t('lib.confirmRemove', { title: b.title }))) return;
+  if (!await confirmDialog(t('lib.confirmRemove', { title: b.title }))) return;
   try {
     await dbDel(id);
   } catch (e) {
@@ -2260,6 +2363,36 @@ function setReaderPos(pos: DocPos): void {
   if (pos.page != null) reader.page = pos.page;
 }
 
+// Fills #r-col with a recovery panel when a book fails to load, instead of
+// leaving the reader blank. Built with safe DOM construction (no innerHTML). A
+// later successful renderAt replaces #r-col content, clearing the panel.
+function renderReaderError(retryId: string): void {
+  const col = el('r-col');
+  col.innerHTML = '';
+  const box = document.createElement('div');
+  box.className = 'r-error';
+  const ic = document.createElement('div');
+  ic.className = 'r-error-ic';
+  ic.textContent = '⚠';
+  const h3 = document.createElement('h3');
+  h3.textContent = t('reader.error.title');
+  const p = document.createElement('p');
+  p.textContent = t('reader.error.body');
+  const actions = document.createElement('div');
+  actions.className = 'r-error-actions';
+  const back = document.createElement('button');
+  back.className = 'mast-btn';
+  back.textContent = t('rdr.back');
+  back.addEventListener('click', () => closeReader());
+  const retry = document.createElement('button');
+  retry.className = 'mast-btn brass';
+  retry.textContent = t('reader.error.retry');
+  retry.addEventListener('click', () => openBook(retryId));
+  actions.append(back, retry);
+  box.append(ic, h3, p, actions);
+  col.appendChild(box);
+}
+
 async function openBook(id: string): Promise<void> {
   const meta = books.find(x => x.id === id);
   if (!meta) { toast(t('toast.cantOpen')); return; }
@@ -2292,7 +2425,7 @@ async function openBook(id: string): Promise<void> {
       reader.adapter = await makeAdapter(b, null, () => presignedUrlFor(id));
     } else {
       bytes = await dbGet(id);
-      if (!bytes) { toast(t('toast.cantLoad')); el('r-loading').classList.add('hidden'); return; }
+      if (!bytes) { toast(t('toast.cantLoad'), { error: true }); renderReaderError(id); el('r-loading').classList.add('hidden'); return; }
       reader.adapter = await makeAdapter(b, bytes);
     }
     // Scroll formats restore a 0..1 scroll fraction (stored generalized as
@@ -2325,8 +2458,9 @@ async function openBook(id: string): Promise<void> {
   } catch (e) {
     console.error(e);
     if (e instanceof ApiAuthError) { closeReader(); return; }
-    if (e instanceof ApiNetworkError) toast(t('toast.notDownloaded'));
-    else toast(t('toast.loadFailed'));
+    if (e instanceof ApiNetworkError) toast(t('toast.notDownloaded'), { error: true });
+    else toast(t('toast.loadFailed'), { error: true });
+    renderReaderError(id);
   }
   el('r-loading').classList.add('hidden');
 }
@@ -2828,7 +2962,9 @@ async function openClipSheet(arg: { clip?: Clip; region?: { rect: Rect }; text?:
   el('clip-save').classList.toggle('hidden', !!clip);
   el('clip-colors').classList.toggle('hidden', !!clip);
   el('clip-delete').classList.toggle('hidden', !clip);
-  el('clip-sheet').classList.remove('hidden');
+  const sheet = el('clip-sheet');
+  sheet.classList.remove('hidden');
+  (sheet as any)._untrap = trapFocus(sheet);
 }
 function renderSwatches(): void {
   const wrap = el('clip-colors');
@@ -2844,7 +2980,9 @@ function renderSwatches(): void {
 function closeClipSheet(): void {
   const img = el('clip-preview') as HTMLImageElement;
   if (img.src) { URL.revokeObjectURL(img.src); img.removeAttribute('src'); }
-  el('clip-sheet').classList.add('hidden');
+  const sheet = el('clip-sheet');
+  (sheet as any)._untrap?.();
+  sheet.classList.add('hidden');
   sheetState = null;
 }
 
@@ -3008,6 +3146,19 @@ function wireReader(): void {
     const w = window.innerWidth;
     if (x < w * 0.32) go(-1);
     else if (x > w * 0.68) go(1);
+  });
+
+  // Click the reader progress bar to seek (paged formats only; reflow/scroll/
+  // media have native scroll/seek and are a graceful no-op here).
+  const rprog = document.querySelector('.rprogress') as HTMLElement | null;
+  rprog?.addEventListener('click', (e) => {
+    const ad = reader.adapter; const b = reader.book;
+    if (!ad || !b || ad.mode !== 'canvas') return;
+    const rect = rprog.getBoundingClientRect();
+    if (!rect.width) return;
+    const frac = Math.min(Math.max(((e as MouseEvent).clientX - rect.left) / rect.width, 0), 1);
+    const page = Math.round(frac * (b.numPages - 1)) + 1;
+    renderAt({ page }, false);
   });
 
   document.addEventListener('fullscreenchange', () => {
@@ -3197,7 +3348,7 @@ async function createNote(): Promise<void> {
 async function deleteNote(): Promise<void> {
   const b = noteEd.book; if (!b) return;
   const title = b.title || t('note.untitled');
-  if (!window.confirm(t('note.confirmDelete', { title }))) return;
+  if (!await confirmDialog(t('note.confirmDelete', { title }))) return;
   const id = b.id;
   try { await dbDelNote(id); }
   catch (e) {
@@ -3341,14 +3492,27 @@ async function submitLinkedMedia(): Promise<void> {
     toast(t('toast.cantRead', { name: url })); return;
   }
   b.data = new ArrayBuffer(0); books.unshift(b);
-  el('link-sheet').classList.add('hidden');
+  closeLinkSheet();
   renderLibrary(); toast(t('media.link.added'));
 }
+function openLinkSheet(): void {
+  const sheet = el('link-sheet');
+  sheet.classList.remove('hidden');
+  (sheet as any)._untrap = trapFocus(sheet);
+}
+function closeLinkSheet(): void {
+  const sheet = el('link-sheet');
+  (sheet as any)._untrap?.();
+  sheet.classList.add('hidden');
+}
 function wireLinkSheet(): void {
-  el('btn-link').addEventListener('click', () => el('link-sheet').classList.remove('hidden'));
-  el('link-cancel').addEventListener('click', () => el('link-sheet').classList.add('hidden'));
+  el('btn-link').addEventListener('click', openLinkSheet);
+  el('link-cancel').addEventListener('click', closeLinkSheet);
   el('link-add').addEventListener('click', submitLinkedMedia);
-  el('link-sheet').addEventListener('click', (e) => { if (e.target === el('link-sheet')) el('link-sheet').classList.add('hidden'); });
+  el('link-sheet').addEventListener('click', (e) => { if (e.target === el('link-sheet')) closeLinkSheet(); });
+  document.addEventListener('keydown', (e) => {
+    if ((e as KeyboardEvent).key === 'Escape' && !el('link-sheet').classList.contains('hidden')) closeLinkSheet();
+  });
   el('link-kind').addEventListener('click', (e) => {
     const btn = (e.target as HTMLElement).closest('button') as HTMLElement | null; if (!btn) return;
     linkKind = btn.dataset.kind as 'audio' | 'video';
@@ -3483,16 +3647,18 @@ function migrateLocalStorage(): void {
 function wireSettings(): void {
   const modal = el('settings');
   const sel = el<HTMLSelectElement>('lang-select');
+  const closeSettings = () => { (modal as any)._untrap?.(); modal.classList.add('hidden'); };
   el('btn-settings').addEventListener('click', () => {
     sel.value = localStorage.getItem(LS.lang) || 'system';
     modal.classList.remove('hidden');
     el('dropdown').classList.add('hidden');
+    (modal as any)._untrap = trapFocus(modal, sel);
   });
   sel.addEventListener('change', () => setLanguage(sel.value as LangPref));  // applies live
-  el('settings-done').addEventListener('click', () => modal.classList.add('hidden'));
-  modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.add('hidden'); });
+  el('settings-done').addEventListener('click', closeSettings);
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeSettings(); });
   document.addEventListener('keydown', (e) => {
-    if ((e as KeyboardEvent).key === 'Escape' && !modal.classList.contains('hidden')) modal.classList.add('hidden');
+    if ((e as KeyboardEvent).key === 'Escape' && !modal.classList.contains('hidden')) closeSettings();
   });
 }
 

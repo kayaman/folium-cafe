@@ -124,7 +124,7 @@
   </div>
   <div class="rstage" id="r-stage">
     <div class="rcanvas-wrap"><div class="rcanvas-col" id="r-col"></div></div>
-    <div class="rloading hidden" id="r-loading"><div class="spinner"></div></div>
+    <div class="rloading hidden" id="r-loading"><div class="r-skel"></div></div>
   </div>
   <button class="rnav prev" id="r-prev" title="Previous" data-i18n-title="rdr.prev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
   <button class="rnav next" id="r-next" title="Next" data-i18n-title="rdr.next"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>
@@ -163,6 +163,17 @@
     <div class="coll-picker-actions">
       <button class="mast-btn" id="coll-picker-cancel" data-i18n="clip.close">Close</button>
       <button class="mast-btn brass" id="coll-picker-save" data-i18n="coll.save">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="confirm-dialog" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+  <div class="settings-card">
+    <div class="smallcaps" id="confirm-title" data-i18n="confirm.title">Please confirm</div>
+    <p id="confirm-msg"></p>
+    <div class="coll-picker-actions">
+      <button class="mast-btn" id="confirm-cancel" data-i18n="confirm.cancel">Cancel</button>
+      <button class="mast-btn brass" id="confirm-ok" data-i18n="confirm.ok">Confirm</button>
     </div>
   </div>
 </div>
