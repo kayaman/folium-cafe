@@ -717,13 +717,15 @@ async function refreshOfflineIds(): Promise<void> {
 // formats queue `{currentPage}`; scroll/media formats queue a generalized
 // `{progress:{kind,value}}` — the body is shaped here so flush is a dumb replay.
 type ProgressBody =
-  | { currentPage: number; lastReadAt: number }
+  | { currentPage: number; frac?: number; lastReadAt: number }
   | { progress: { kind: 'page' | 'cfi' | 'fraction' | 'seconds'; value: number | string }; lastReadAt: number };
 
 function progressBodyFor(b: Book): ProgressBody {
   const lastReadAt = b.lastReadAt || Date.now();
   if (b.progress) return { progress: b.progress, lastReadAt };
-  return { currentPage: b.currentPage, lastReadAt };
+  const body: { currentPage: number; frac?: number; lastReadAt: number } = { currentPage: b.currentPage, lastReadAt };
+  if (typeof b.posFrac === 'number') body.frac = b.posFrac;
+  return body;
 }
 
 function enqueueProgress(b: Book): void {
@@ -2322,8 +2324,8 @@ async function openBook(id: string): Promise<void> {
   reader.book = b;
   // Tentative paged position; for scroll formats it's replaced with a fraction
   // once the adapter (and thus the mode) is known, just below.
-  setReaderPos({ page: Math.min(Math.max(1, b.currentPage || 1), b.numPages) });
-  reader.zoom = 1;
+  setReaderPos({ page: Math.min(Math.max(1, b.currentPage || 1), b.numPages), frac: b.posFrac ?? 0 });
+  reader.zoom = getBookZoom(id) ?? (Number(localStorage.getItem(LS.lastZoom)) || 1);
   reader.clips = [];
   exitCapture();
   el('r-title-t').textContent = b.title;
@@ -2407,6 +2409,9 @@ async function renderAt(pos: DocPos, keepScroll: boolean): Promise<void> {
   if (!reader.adapter || !reader.book) return;
   if (pos.page != null) {
     pos = { ...pos, page: Math.min(Math.max(1, pos.page), reader.book.numPages) };
+  }
+  if (keepScroll && reader.adapter.caps.canvasPages) {
+    pos = { ...pos, frac: fracFromStage(el('r-stage')) };
   }
   setReaderPos(pos);
   const token = ++reader.renderToken;
@@ -2505,10 +2510,11 @@ function persistPos(): void {
     if (reader.pos.cfi) b.progress = { kind: 'cfi', value: reader.pos.cfi };
   } else if (reader.pos.page != null) {
     b.currentPage = reader.pos.page;
+    b.posFrac = reader.pos.frac ?? 0;
   }
   b.lastReadAt = Date.now();
   const cached = books.find(x => x.id === b.id);
-  if (cached) { cached.currentPage = b.currentPage; cached.progress = b.progress; cached.lastReadAt = b.lastReadAt; }
+  if (cached) { cached.currentPage = b.currentPage; cached.posFrac = b.posFrac; cached.progress = b.progress; cached.lastReadAt = b.lastReadAt; }
   window.clearTimeout(reader.saveTimer);
   reader.saveTimer = window.setTimeout(() => { dbPutProgress(b).catch(() => {}); }, 350);
 }
@@ -3028,15 +3034,14 @@ function wireReader(): void {
     openClipSheet({ text: payload });
   });
 
-  el('r-zoom-in').addEventListener('click', () => { reader.zoom = Math.min(reader.zoom + 0.15, 2.2); renderAt(reader.pos, true); });
-  el('r-zoom-out').addEventListener('click', () => { reader.zoom = Math.max(reader.zoom - 0.15, 0.6); renderAt(reader.pos, true); });
+  el('r-zoom-in').addEventListener('click', () => { reader.zoom = Math.min(reader.zoom + 0.15, 2.2); if (reader.book) setBookZoom(reader.book.id, reader.zoom); renderAt(reader.pos, true); });
+  el('r-zoom-out').addEventListener('click', () => { reader.zoom = Math.max(reader.zoom - 0.15, 0.6); if (reader.book) setBookZoom(reader.book.id, reader.zoom); renderAt(reader.pos, true); });
 
   el('width-seg').addEventListener('click', (e) => {
     const btn = (e.target as HTMLElement).closest('button') as HTMLElement | null;
     if (!btn) return;
     reader.width = btn.dataset.w as 'comfort' | 'full';
     localStorage.setItem(LS.width, reader.width);
-    reader.zoom = 1;
     setWidthButtons();
     renderAt(reader.pos, true);
   });
