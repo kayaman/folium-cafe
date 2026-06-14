@@ -1747,6 +1747,7 @@ class PdfAdapter implements DocAdapter {
   };
   private doc: any;
   private canvas: HTMLCanvasElement | null = null;
+  private detachScroll: (() => void) | null = null;
 
   constructor(doc: any) { this.doc = doc; }
 
@@ -1774,6 +1775,9 @@ class PdfAdapter implements DocAdapter {
     if (!out) return; // superseded
     this.canvas = out.canvas;
     renderTextLayerFor(page, out.wrap, out.cssScale, token);
+    this.detachScroll?.();
+    restoreFracToStage(ctx.stage, pos.frac ?? 0);
+    this.detachScroll = attachPagedScroll(ctx.stage);
   }
 
   toBarPercent(pos: DocPos): number {
@@ -1787,7 +1791,7 @@ class PdfAdapter implements DocAdapter {
 
   currentCanvas(): HTMLCanvasElement | null { return this.canvas; }
 
-  destroy(): void { this.doc = null; this.canvas = null; }
+  destroy(): void { this.detachScroll?.(); this.detachScroll = null; this.doc = null; this.canvas = null; }
 }
 
 // Natural-order comparator for archive entry names so page 2 sorts before
@@ -1848,6 +1852,7 @@ class CbzAdapter implements DocAdapter {
   };
   private pages: { name: string; data: Uint8Array }[];
   private canvas: HTMLCanvasElement | null = null;
+  private detachScroll: (() => void) | null = null;
 
   constructor(pages: { name: string; data: Uint8Array }[]) { this.pages = pages; }
 
@@ -1869,6 +1874,9 @@ class CbzAdapter implements DocAdapter {
     );
     if (!out) return; // superseded
     this.canvas = out.canvas;
+    this.detachScroll?.();
+    restoreFracToStage(ctx.stage, pos.frac ?? 0);
+    this.detachScroll = attachPagedScroll(ctx.stage);
   }
 
   toBarPercent(pos: DocPos): number {
@@ -1879,7 +1887,7 @@ class CbzAdapter implements DocAdapter {
     return { current: String(pos.page ?? 1), total: String(this.total) };
   }
   currentCanvas(): HTMLCanvasElement | null { return this.canvas; }
-  destroy(): void { this.pages = []; this.canvas = null; }
+  destroy(): void { this.detachScroll?.(); this.detachScroll = null; this.pages = []; this.canvas = null; }
 }
 
 // A plain-text or Markdown document rendered as one scrollable column. No
