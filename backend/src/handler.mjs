@@ -144,7 +144,7 @@ export async function handler(event) {
         if (!parsed) return json(400, { error: 'currentPage required' });
         const lastReadAt = body.lastReadAt ?? Date.now();
         if ('currentPage' in parsed) {
-          // Legacy contract — unchanged.
+          // Paged formats: currentPage + optional within-page frac (may be undefined).
           await repo.updateProgress(id, parsed.currentPage, lastReadAt, parsed.frac);
         } else {
           await repo.updateProgressGeneric(id, parsed.progress, lastReadAt);
