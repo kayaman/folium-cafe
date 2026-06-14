@@ -2,11 +2,16 @@
    FOLIUM CAFÉ — app.ts  (so you remember the page you were on)
    ============================================================ */
 
-// File Handling API (open-with). Minimal ambient types — this file is a script,
-// so these interfaces live in the global scope and merge with the lib DOM types.
-interface LaunchParams { files?: FileSystemFileHandle[] }
-interface LaunchQueue { setConsumer(cb: (p: LaunchParams) => void): void }
-interface Window { launchQueue?: LaunchQueue }
+import { mediaFormatForUrl, AUDIO_EXT, VIDEO_EXT } from './share-routing.mjs';
+
+// File Handling API (open-with). Minimal ambient types — the import above makes
+// this file a module, so the interfaces are wrapped in `declare global` to keep
+// merging with the global scope / lib DOM types instead of staying file-local.
+declare global {
+  interface LaunchParams { files?: FileSystemFileHandle[] }
+  interface LaunchQueue { setConsumer(cb: (p: LaunchParams) => void): void }
+  interface Window { launchQueue?: LaunchQueue }
+}
 
 (() => {
 
@@ -215,6 +220,7 @@ const EN = {
   'lib.unknown': 'Unknown',
   'lib.offlineDot': 'Available offline',
   'lib.remove': 'Remove',
+  'a11y.openBook': 'Open {title}',
   'lib.emptyTitle': 'Your shelves are empty',
   'lib.emptyBody': 'Add a PDF to begin your collection. Your shelf follows you to any device.',
   'lib.emptyAdd': 'Add your first book',
@@ -358,6 +364,7 @@ const PT: Record<MsgKey, string> = {
   'lib.unknown': 'Desconhecido',
   'lib.offlineDot': 'Disponível offline',
   'lib.remove': 'Remover',
+  'a11y.openBook': 'Abrir {title}',
   'lib.emptyTitle': 'Suas estantes estão vazias',
   'lib.emptyBody': 'Adicione um PDF para começar sua coleção. Sua estante acompanha você em qualquer dispositivo.',
   'lib.emptyAdd': 'Adicione seu primeiro livro',
@@ -500,6 +507,7 @@ const ES: Record<MsgKey, string> = {
   'lib.unknown': 'Desconocido',
   'lib.offlineDot': 'Disponible sin conexión',
   'lib.remove': 'Quitar',
+  'a11y.openBook': 'Abrir {title}',
   'lib.emptyTitle': 'Tus estantes están vacíos',
   'lib.emptyBody': 'Añade un PDF para empezar tu colección. Tu estante te sigue en cualquier dispositivo.',
   'lib.emptyAdd': 'Añade tu primer libro',
@@ -670,6 +678,13 @@ function toast(msg: string, opts?: { error?: boolean; duration?: number }): void
   const duration = opts?.duration ?? (opts?.error ? 4200 : 2200);
   window.clearTimeout((toast as any)._t);
   (toast as any)._t = window.setTimeout(() => node.classList.remove('show'), duration);
+}
+
+// Summary toast shared by the share/launch drains: all-ok, all-failed, or partial.
+function shelveSummaryToast(ok: number, failed: number): void {
+  if (failed === 0) toast(t('toast.added'));
+  else if (ok === 0) toast(t('share.drain.allFailed'), { error: true });
+  else toast(t('share.drain.partial', { ok, failed }), { error: true });
 }
 
 // Selector for tabbable elements inside an overlay — used by trapFocus/confirmDialog.
@@ -1191,10 +1206,11 @@ function detectFormat(name: string, mime?: string): DocFormat | null {
     epub: 'epub',
     txt: 'txt',
     md: 'md', markdown: 'md',
-    mp3: 'audio', m4a: 'audio', m4b: 'audio', aac: 'audio', ogg: 'audio', oga: 'audio', opus: 'audio', wav: 'audio', flac: 'audio',
-    mp4: 'video', m4v: 'video', webm: 'video', mov: 'video', mkv: 'video',
   };
   if (byExt[ext]) return byExt[ext];
+  // Audio/video extension knowledge lives in share-routing.mjs (single source of truth).
+  if (AUDIO_EXT.has(ext)) return 'audio';
+  if (VIDEO_EXT.has(ext)) return 'video';
   const m = (mime || '').toLowerCase();
   if (m === 'application/pdf') return 'pdf';
   if (m === 'application/epub+zip') return 'epub';
@@ -1509,7 +1525,7 @@ function coverMarkup(b: Book): string {
 }
 
 function bookCard(b: Book): string {
-  return `<div class="book" data-open="${b.id}">
+  return `<div class="book" data-open="${b.id}" tabindex="0" role="button" aria-label="${escapeHtml(t('a11y.openBook', { title: b.title }))}">
     ${coverMarkup(b)}
     <div class="lbl"><div class="t">${escapeHtml(b.title)}</div><div class="a">${escapeHtml(b.author || '\u00A0')}</div></div>
   </div>`;
@@ -1723,6 +1739,17 @@ function wireLibrary(): void {
       const it = books.find(x => x.id === id);
       if (it && isNote(it)) openNote(id); else openBook(id);
     }
+  });
+  // Keyboard activation for the focusable .book cards (role=button). List-view
+  // rows already have a focusable .rresume button, so they are not tab stops.
+  el('library').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const target = e.target as HTMLElement;
+    if (!target.matches('.book[data-open]')) return;
+    e.preventDefault();   // Space would otherwise scroll the page
+    const id = target.dataset.open!;
+    const it = books.find(x => x.id === id);
+    if (it && isNote(it)) openNote(id); else openBook(id);
   });
   el('continue').addEventListener('click', (e) => {
     e.preventDefault();
@@ -3583,15 +3610,8 @@ async function handleLaunchParams(): Promise<void> {
   }
 }
 
-// If a shared URL points at an audio/video file (by its path extension), report
-// which media format it is — otherwise null (the URL becomes a note instead).
-function mediaFormatForUrl(url: string): 'audio' | 'video' | null {
-  try {
-    const p = new URL(url).pathname;
-    const f = detectFormat(p);
-    return (f === 'audio' || f === 'video') ? f : null;
-  } catch { return null; }
-}
+// mediaFormatForUrl (the shared-URL → audio/video/null decision) is imported
+// from ./share-routing.mjs so it can be unit-tested without a browser.
 
 // Shelve a shared media URL as a url-backed linked-media Book (no bytes stored).
 function linkedMediaFromShared(url: string, fmt: 'audio' | 'video', title?: string): Promise<Book> {
@@ -3661,9 +3681,7 @@ async function drainSharedCache(): Promise<void> {
       await cache.delete(req);
     }
     renderLibrary();
-    if (failed === 0) toast(t('toast.added'));
-    else if (ok === 0) toast(t('share.drain.allFailed'), { error: true });
-    else toast(t('share.drain.partial', { ok, failed }), { error: true });
+    shelveSummaryToast(ok, failed);
   } catch (e) { console.warn('shared intake failed', e); }
 }
 
@@ -3711,9 +3729,7 @@ async function drainLaunchFiles(): Promise<void> {
     }
   }
   renderLibrary();
-  if (failed === 0) toast(t('toast.added'));
-  else if (ok === 0) toast(t('share.drain.allFailed'), { error: true });
-  else toast(t('share.drain.partial', { ok, failed }), { error: true });
+  shelveSummaryToast(ok, failed);
 }
 
 // ============================================================

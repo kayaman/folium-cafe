@@ -35,6 +35,9 @@ jobs:
       - name: i18n key coverage
         run: node scripts/i18n-check.mjs
 
+      - name: Frontend tests
+        run: npm test
+
       - name: Install backend deps
         working-directory: backend
         run: npm ci
