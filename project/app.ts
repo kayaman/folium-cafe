@@ -328,6 +328,13 @@ const EN = {
   'reader.error.title': 'This book would not open',
   'reader.error.body': 'Something went wrong loading it. Check your connection and try again.',
   'reader.error.retry': 'Retry',
+  'settings.reading': 'Reading',
+  'settings.textSize': 'Text size',
+  'settings.lineSpacing': 'Line spacing',
+  'settings.decreaseTextSize': 'Decrease text size',
+  'settings.increaseTextSize': 'Increase text size',
+  'settings.decreaseLineSpacing': 'Decrease line spacing',
+  'settings.increaseLineSpacing': 'Increase line spacing',
 } as const;
 type MsgKey = keyof typeof EN;
 
@@ -472,6 +479,13 @@ const PT: Record<MsgKey, string> = {
   'reader.error.title': 'Este livro não pôde ser aberto',
   'reader.error.body': 'Algo deu errado ao carregá-lo. Verifique sua conexão e tente novamente.',
   'reader.error.retry': 'Tentar de novo',
+  'settings.reading': 'Leitura',
+  'settings.textSize': 'Tamanho do texto',
+  'settings.lineSpacing': 'Espaçamento',
+  'settings.decreaseTextSize': 'Diminuir tamanho do texto',
+  'settings.increaseTextSize': 'Aumentar tamanho do texto',
+  'settings.decreaseLineSpacing': 'Diminuir espaçamento',
+  'settings.increaseLineSpacing': 'Aumentar espaçamento',
 };
 
 const ES: Record<MsgKey, string> = {
@@ -615,6 +629,13 @@ const ES: Record<MsgKey, string> = {
   'reader.error.title': 'Este libro no se pudo abrir',
   'reader.error.body': 'Algo salió mal al cargarlo. Revisa tu conexión e inténtalo de nuevo.',
   'reader.error.retry': 'Reintentar',
+  'settings.reading': 'Lectura',
+  'settings.textSize': 'Tamaño del texto',
+  'settings.lineSpacing': 'Interlineado',
+  'settings.decreaseTextSize': 'Disminuir tamaño del texto',
+  'settings.increaseTextSize': 'Aumentar tamaño del texto',
+  'settings.decreaseLineSpacing': 'Disminuir interlineado',
+  'settings.increaseLineSpacing': 'Aumentar interlineado',
 };
 
 const DICTS: Record<Locale, Record<MsgKey, string>> = { en: EN, 'pt-BR': PT, es: ES };
@@ -1184,7 +1205,34 @@ const LS = {
   noteQueue: 'folium.noteQueue',
   lang: 'folium.lang',
   activeCollection: 'folium.activeCollection',
+  readerFontScale: 'folium.readerFontScale',
+  readerLineHeight: 'folium.readerLineHeight',
 };
+
+const TYPE_LIMITS = { scaleMin: 0.8, scaleMax: 2.0, scaleStep: 0.1, lhMin: 1.4, lhMax: 2.3, lhStep: 0.15 };
+const clampType = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
+let readerFontScale = clampType(Number(localStorage.getItem(LS.readerFontScale)) || 1, TYPE_LIMITS.scaleMin, TYPE_LIMITS.scaleMax);
+let readerLineHeight = clampType(Number(localStorage.getItem(LS.readerLineHeight)) || 1.75, TYPE_LIMITS.lhMin, TYPE_LIMITS.lhMax);
+
+// Single apply-point: set CSS vars (instant reflow for scroll/markdown) and, if an
+// EPUB is open, push the values into its iframe via epub.js themes (duck-typed).
+function applyReaderType(): void {
+  const root = document.documentElement.style;
+  root.setProperty('--reader-font-scale', String(readerFontScale));
+  root.setProperty('--reader-line-height', String(readerLineHeight));
+  const a = reader.adapter as any;
+  if (a && typeof a.applyType === 'function') a.applyType(readerFontScale, readerLineHeight);
+}
+function setReaderFontScale(v: number): void {
+  readerFontScale = clampType(Number(v.toFixed(2)), TYPE_LIMITS.scaleMin, TYPE_LIMITS.scaleMax);
+  localStorage.setItem(LS.readerFontScale, String(readerFontScale));
+  applyReaderType();
+}
+function setReaderLineHeight(v: number): void {
+  readerLineHeight = clampType(Number(v.toFixed(2)), TYPE_LIMITS.lhMin, TYPE_LIMITS.lhMax);
+  localStorage.setItem(LS.readerLineHeight, String(readerLineHeight));
+  applyReaderType();
+}
 migrateLocalStorage();   // must run before viewMode/reader.width read their keys
 let books: Book[] = [];
 let viewMode: ViewMode = (localStorage.getItem(LS.view) as ViewMode) || 'shelf';
@@ -2315,6 +2363,14 @@ class EpubAdapter implements DocAdapter {
     this.cfi = startCfi;
   }
 
+  applyType(scale: number, lineHeight: number): void {
+    if (!this.rendition) return;
+    try {
+      this.rendition.themes.fontSize(Math.round(scale * 100) + '%');
+      this.rendition.themes.override('line-height', String(lineHeight), true);
+    } catch { /* themes API best-effort */ }
+  }
+
   async render(pos: DocPos, ctx: RenderCtx, _keepScroll: boolean): Promise<void> {
     const token = ctx.token;
     await this.epub.ready;
@@ -2342,11 +2398,14 @@ class EpubAdapter implements DocAdapter {
       this.rendition.on('relocated', this.onRelocated);
       this.rendition.on('selected', this.onSelected);
       await this.rendition.display(pos.cfi || this.cfi || undefined);
+      this.applyType(readerFontScale, readerLineHeight);
       this.displayed = true;
       this.generateLocations();
     } else {
-      // A re-render (e.g. width/resize change): just re-display the current spot.
+      // A re-render (e.g. width/resize change): re-display the current spot and
+      // re-assert type overrides (epub.js may rebuild the iframe on display).
       await this.rendition.display(this.cfi || pos.cfi || undefined);
+      this.applyType(readerFontScale, readerLineHeight);
     }
   }
 
@@ -3854,8 +3913,17 @@ function wireSettings(): void {
   const modal = el('settings');
   const sel = el<HTMLSelectElement>('lang-select');
   const closeSettings = () => { (modal as any)._untrap?.(); modal.classList.add('hidden'); };
+  function syncTypeReadout(): void {
+    el('type-size-val').textContent = Math.round(readerFontScale * 100) + '%';
+    el('type-lh-val').textContent = readerLineHeight.toFixed(2);
+  }
+  el('type-size-dec').addEventListener('click', () => { setReaderFontScale(readerFontScale - TYPE_LIMITS.scaleStep); syncTypeReadout(); });
+  el('type-size-inc').addEventListener('click', () => { setReaderFontScale(readerFontScale + TYPE_LIMITS.scaleStep); syncTypeReadout(); });
+  el('type-lh-dec').addEventListener('click', () => { setReaderLineHeight(readerLineHeight - TYPE_LIMITS.lhStep); syncTypeReadout(); });
+  el('type-lh-inc').addEventListener('click', () => { setReaderLineHeight(readerLineHeight + TYPE_LIMITS.lhStep); syncTypeReadout(); });
   el('btn-settings').addEventListener('click', () => {
     sel.value = localStorage.getItem(LS.lang) || 'system';
+    syncTypeReadout();
     modal.classList.remove('hidden');
     el('dropdown').classList.add('hidden');
     (modal as any)._untrap = trapFocus(modal, sel);
@@ -3872,6 +3940,7 @@ function init(): void {
   locale = resolveLocale();
   pluralRules = new Intl.PluralRules(locale);
   applyI18n();
+  applyReaderType();
   setupMarked();
   wireAuth();
   wireSettings();
