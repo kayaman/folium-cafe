@@ -92,8 +92,9 @@ interface DocCaps {
 interface DocPos {
   page?: number;
   cfi?: string;
-  fraction?: number;
+  fraction?: number;   // whole-document scroll (txt/md)
   seconds?: number;
+  frac?: number;       // within-page scroll fraction 0..1 (pdf/cbz), zoom-independent
 }
 
 // Everything an adapter needs to paint itself into the reader column.
@@ -135,6 +136,7 @@ interface Book {
   // Generalized reading position for non-paged formats (scroll/media). Paged
   // formats keep using `currentPage`; scroll formats persist `{kind:'fraction'}`.
   progress?: { kind: 'page' | 'cfi' | 'fraction' | 'seconds'; value: number | string };
+  posFrac?: number;    // synced within-page fraction for paged formats
   collections?: string[];     // collection ids this book belongs to
   url?: string;               // linked external media: https stream URL (no stored bytes)
   provider?: string | null;   // linked media: free-text provider passthrough
@@ -1041,6 +1043,8 @@ async function flushNoteQueue(): Promise<void> {
 const LS = {
   user: 'folium.user',
   view: 'folium.view',
+  zoom: 'folium.zoom',
+  lastZoom: 'folium.lastZoom',
   width: 'folium.readerWidth',
   pdfLru: 'folium.pdfLru',
   progressQueue: 'folium.progressQueue',
@@ -1127,6 +1131,47 @@ function relTime(ts: number): string {
   if (d < day) return rtf.format(-Math.floor(d / h), 'hour');
   if (d < day * 7) return rtf.format(-Math.floor(d / day), 'day');
   return new Date(ts).toLocaleDateString(locale, { month: 'short', day: 'numeric' });
+}
+// Within-page scroll as a fraction of the page's scrollable height (zoom/screen
+// independent). Mirrors ScrollTextAdapter's whole-doc math, applied per page.
+function fracFromStage(stage: HTMLElement): number {
+  const max = stage.scrollHeight - stage.clientHeight;
+  return max > 0 ? Math.min(Math.max(stage.scrollTop / max, 0), 1) : 0;
+}
+function restoreFracToStage(stage: HTMLElement, frac: number): void {
+  requestAnimationFrame(() => {
+    const max = stage.scrollHeight - stage.clientHeight;
+    stage.scrollTop = max > 0 ? Math.min(Math.max(frac, 0), 1) * max : 0;
+  });
+}
+// Debounced within-page scroll capture for paged adapters. Returns a detach fn.
+function attachPagedScroll(stage: HTMLElement): () => void {
+  let timer = 0 as any;
+  const handler = () => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      setReaderPos({ page: reader.pos.page, frac: fracFromStage(stage) });
+      persistPos();
+    }, 200);
+  };
+  stage.addEventListener('scroll', handler, { passive: true });
+  return () => { stage.removeEventListener('scroll', handler); window.clearTimeout(timer); };
+}
+// Per-book zoom, per device. LRU-capped so the map can't grow without bound.
+function getBookZoom(id: string): number | null {
+  try {
+    const m = JSON.parse(localStorage.getItem(LS.zoom) || '{}');
+    return typeof m[id] === 'number' ? m[id] : null;
+  } catch { return null; }
+}
+function setBookZoom(id: string, z: number): void {
+  let m: Record<string, number>;
+  try { m = JSON.parse(localStorage.getItem(LS.zoom) || '{}'); } catch { m = {}; }
+  delete m[id]; m[id] = z;
+  const keys = Object.keys(m);
+  if (keys.length > 50) for (const k of keys.slice(0, keys.length - 50)) delete m[k];
+  localStorage.setItem(LS.zoom, JSON.stringify(m));
+  localStorage.setItem(LS.lastZoom, String(z));
 }
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as any)[c]);
