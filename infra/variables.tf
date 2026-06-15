@@ -19,7 +19,7 @@ variable "name_prefix" {
 }
 
 variable "bedrock_model_id" {
-  description = "Bedrock cross-region inference-profile id for the metadata-extraction model (us-east-1). The account owner MUST enable model access in the Bedrock console and set this to a vision-capable Claude profile the account can invoke, e.g. a 'us.anthropic.claude-...' profile. Find valid ids with: aws bedrock list-inference-profiles --region us-east-1."
+  description = "Bedrock cross-region inference-profile id for book-metadata extraction (us-east-1). Defaults to Claude Haiku 4.5 — the cheapest vision-capable model, ample for bibliographic extraction. The account owner must enable model access for it in the Bedrock console once. Override only to trade cost for accuracy (e.g. us.anthropic.claude-sonnet-4-6). List ids: aws bedrock list-inference-profiles --region us-east-1."
   type        = string
-  default     = "us.anthropic.claude-sonnet-4-6-v1:0"
+  default     = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 }
