@@ -202,11 +202,12 @@ const EN = {
   'mast.listTitle': 'Reading list',
   'mast.add': 'Add books',
   'mast.addTitle': 'Add PDFs',
+  'mast.addLabel': 'Add',
+  'mast.linkMedia': 'Link media',
   'menu.atCafe': 'at the café',
   'menu.settings': 'Settings',
   'menu.install': 'Install Folium Café',
   'menu.signOut': 'Sign out',
-  'mast.offline': 'Offline',
   'common.reader': 'Reader',
   'lib.title': 'Your Library',
   'lib.count.one': '{n} volume',
@@ -283,7 +284,6 @@ const EN = {
   'clip.removed': 'Clipping removed',
   'clip.shareFailed': 'Could not share — downloaded instead',
   'note.new': 'New note',
-  'note.newTitle': 'Create a note',
   'note.kind': 'Note',
   'note.untitled': 'Untitled note',
   'note.plain': 'Plain text',
@@ -346,11 +346,12 @@ const PT: Record<MsgKey, string> = {
   'mast.listTitle': 'Lista de leitura',
   'mast.add': 'Adicionar livros',
   'mast.addTitle': 'Adicionar PDFs',
+  'mast.addLabel': 'Adicionar',
+  'mast.linkMedia': 'Vincular mídia',
   'menu.atCafe': 'no café',
   'menu.settings': 'Configurações',
   'menu.install': 'Instalar o Folium Café',
   'menu.signOut': 'Sair',
-  'mast.offline': 'Offline',
   'common.reader': 'Leitor',
   'lib.title': 'Sua Biblioteca',
   'lib.count.one': '{n} volume',
@@ -427,7 +428,6 @@ const PT: Record<MsgKey, string> = {
   'clip.removed': 'Recorte removido',
   'clip.shareFailed': 'Não foi possível compartilhar — baixado em vez disso',
   'note.new': 'Nova nota',
-  'note.newTitle': 'Criar uma nota',
   'note.kind': 'Nota',
   'note.untitled': 'Nota sem título',
   'note.plain': 'Texto simples',
@@ -489,11 +489,12 @@ const ES: Record<MsgKey, string> = {
   'mast.listTitle': 'Lista de lectura',
   'mast.add': 'Añadir libros',
   'mast.addTitle': 'Añadir PDFs',
+  'mast.addLabel': 'Añadir',
+  'mast.linkMedia': 'Vincular medios',
   'menu.atCafe': 'en el café',
   'menu.settings': 'Ajustes',
   'menu.install': 'Instalar Folium Café',
   'menu.signOut': 'Cerrar sesión',
-  'mast.offline': 'Sin conexión',
   'common.reader': 'Lector',
   'lib.title': 'Tu Biblioteca',
   'lib.count.one': '{n} volumen',
@@ -570,7 +571,6 @@ const ES: Record<MsgKey, string> = {
   'clip.removed': 'Recorte eliminado',
   'clip.shareFailed': 'No se pudo compartir — descargado en su lugar',
   'note.new': 'Nueva nota',
-  'note.newTitle': 'Crear una nota',
   'note.kind': 'Nota',
   'note.untitled': 'Nota sin título',
   'note.plain': 'Texto sin formato',
@@ -881,8 +881,6 @@ let _offline = false;
 function setOffline(off: boolean): void {
   if (off === _offline) return;
   _offline = off;
-  const badge = document.getElementById('offline-badge');
-  if (badge) badge.classList.toggle('show', off);
 }
 
 // List metadata for all books (no bytes). Network-first with a snapshot
@@ -3409,8 +3407,31 @@ async function deleteNote(): Promise<void> {
   toast(t('toast.noteRemoved'));
 }
 
+// ---------- add menu (masthead "Add" dropdown) ----------
+// Mirrors the avatar dropdown's open/close semantics, plus aria-expanded and the
+// three actions (upload / new note / link media), each of which closes the menu.
+function closeAddMenu(): void {
+  el('add-menu').classList.add('hidden');
+  el('btn-add').setAttribute('aria-expanded', 'false');
+}
+function wireAddMenu(): void {
+  el('btn-add').addEventListener('click', (e) => {
+    e.stopPropagation();
+    el('dropdown').classList.add('hidden');   // close the avatar menu if open
+    const hidden = el('add-menu').classList.toggle('hidden');
+    el('btn-add').setAttribute('aria-expanded', hidden ? 'false' : 'true');
+  });
+  document.addEventListener('click', () => closeAddMenu());
+  el('add-menu').addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('keydown', (e) => {
+    if ((e as KeyboardEvent).key === 'Escape' && !el('add-menu').classList.contains('hidden')) closeAddMenu();
+  });
+  el('add-books').addEventListener('click', () => { closeAddMenu(); el('file-input').click(); });
+  el('add-note').addEventListener('click', () => { closeAddMenu(); createNote(); });
+  el('add-link').addEventListener('click', () => { closeAddMenu(); openLinkSheet(); });
+}
+
 function wireNotes(): void {
-  el('btn-newnote').addEventListener('click', () => createNote());
   el('note-back').addEventListener('click', closeNote);
   el('note-delete').addEventListener('click', deleteNote);
 
@@ -3476,10 +3497,12 @@ function wireAuth(): void {
 
   el('avatar').addEventListener('click', (e) => {
     e.stopPropagation();
+    closeAddMenu();
     el('dropdown').classList.toggle('hidden');
   });
   document.addEventListener('click', () => el('dropdown').classList.add('hidden'));
   el('dropdown').addEventListener('click', (e) => e.stopPropagation());
+  wireAddMenu();
   el('btn-logout').addEventListener('click', async () => {
     try { await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' }); } catch {}
     localStorage.removeItem(LS.user);
@@ -3507,7 +3530,6 @@ function wireAuth(): void {
 //  UPLOAD WIRING + DRAG/DROP
 // ============================================================
 function wireUpload(): void {
-  el('btn-upload').addEventListener('click', () => el('file-input').click());
   el<HTMLInputElement>('file-input').addEventListener('change', (e) => {
     const files = (e.target as HTMLInputElement).files;
     if (files && files.length) addFiles(files);
@@ -3556,7 +3578,6 @@ function closeLinkSheet(): void {
   sheet.classList.add('hidden');
 }
 function wireLinkSheet(): void {
-  el('btn-link').addEventListener('click', openLinkSheet);
   el('link-cancel').addEventListener('click', closeLinkSheet);
   el('link-add').addEventListener('click', submitLinkedMedia);
   el('link-sheet').addEventListener('click', (e) => { if (e.target === el('link-sheet')) closeLinkSheet(); });

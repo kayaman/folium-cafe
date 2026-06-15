@@ -50,15 +50,23 @@
         <span class="sub">café</span>
       </div>
       <div class="spacer"></div>
-      <span id="offline-badge" class="offline-badge" aria-live="polite" data-i18n="mast.offline">Offline</span>
       <nav class="viewswitch" id="viewswitch" aria-label="Library view" data-i18n-aria="mast.viewAria">
-        <button data-view="shelf" title="Bookshelf" data-i18n-title="mast.shelfTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5M9 19V5M14 19V6l5 1-1 12"/><path d="M3 19h18"/></svg><span data-i18n="mast.shelf">Shelf</span></button>
-        <button data-view="grid" title="Cover grid" data-i18n-title="mast.coversTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="9"/><rect x="3" y="15" width="7" height="6"/><rect x="14" y="15" width="7" height="6"/></svg><span data-i18n="mast.covers">Covers</span></button>
-        <button data-view="list" title="Reading list" data-i18n-title="mast.listTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h12M8 12h12M8 18h12M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg><span data-i18n="mast.list">List</span></button>
+        <button data-view="shelf" title="Bookshelf" data-i18n-title="mast.shelfTitle" aria-label="Shelf" data-i18n-aria="mast.shelf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5M9 19V5M14 19V6l5 1-1 12"/><path d="M3 19h18"/></svg><span data-i18n="mast.shelf">Shelf</span></button>
+        <button data-view="grid" title="Cover grid" data-i18n-title="mast.coversTitle" aria-label="Covers" data-i18n-aria="mast.covers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="9"/><rect x="3" y="15" width="7" height="6"/><rect x="14" y="15" width="7" height="6"/></svg><span data-i18n="mast.covers">Covers</span></button>
+        <button data-view="list" title="Reading list" data-i18n-title="mast.listTitle" aria-label="List" data-i18n-aria="mast.list"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h12M8 12h12M8 18h12M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg><span data-i18n="mast.list">List</span></button>
       </nav>
-      <button class="mast-btn brass" id="btn-upload" title="Add PDFs" data-i18n-title="mast.addTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span data-i18n="mast.add">Add books</span></button>
-      <button class="mast-btn" id="btn-newnote" title="Create a note" data-i18n-title="note.newTitle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg><span data-i18n="note.new">New note</span></button>
-      <button class="mast-btn" id="btn-link" title="Add a media link" data-i18n-title="media.link.tabLink"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg><span data-i18n="media.link.tabLink">Link</span></button>
+      <div class="addmenu">
+        <button class="mast-btn brass" id="btn-add" aria-haspopup="true" aria-expanded="false" title="Add to library" data-i18n-title="mast.addTitle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          <span data-i18n="mast.addLabel">Add</span>
+          <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div class="dropdown hidden" id="add-menu">
+          <button id="add-books"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span data-i18n="mast.add">Add books</span></button>
+          <button id="add-note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg><span data-i18n="note.new">New note</span></button>
+          <button id="add-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg><span data-i18n="mast.linkMedia">Link media</span></button>
+        </div>
+      </div>
       <input type="file" id="file-input" accept="application/pdf,.pdf,.cbz,.epub,.txt,.md,.markdown,.mp3,.m4a,.m4b,.aac,.ogg,.oga,.opus,.wav,.flac,.mp4,.m4v,.webm,.mov,audio/*,video/*" multiple class="hidden">
       <div class="usermenu">
         <div class="avatar" id="avatar"><span id="avatar-initial">R</span></div>
