@@ -42,6 +42,14 @@ resource "aws_iam_role_policy" "lambda" {
         Effect   = "Allow"
         Action   = ["ssm:GetParameters"]
         Resource = [aws_ssm_parameter.password.arn, aws_ssm_parameter.hmac_key.arn]
+      },
+      {
+        Effect = "Allow"
+        Action = ["bedrock:InvokeModel"]
+        Resource = [
+          "arn:aws:bedrock:*::foundation-model/anthropic.*",
+          "arn:aws:bedrock:us-east-1:${data.aws_caller_identity.current.account_id}:inference-profile/*",
+        ]
       }
     ]
   })
@@ -68,16 +76,17 @@ resource "aws_lambda_function" "api" {
   handler          = "src/handler.handler"
   filename         = data.archive_file.lambda.output_path
   source_code_hash = data.archive_file.lambda.output_base64sha256
-  timeout          = 15
+  timeout          = 29
   memory_size      = 256
 
   environment {
     variables = {
-      TABLE_NAME     = aws_dynamodb_table.books.name
-      PDF_BUCKET     = aws_s3_bucket.pdfs.bucket
-      PASSWORD_PARAM = aws_ssm_parameter.password.name
-      HMAC_PARAM     = aws_ssm_parameter.hmac_key.name
-      ORIGIN_SECRET  = random_password.origin_secret.result
+      TABLE_NAME       = aws_dynamodb_table.books.name
+      PDF_BUCKET       = aws_s3_bucket.pdfs.bucket
+      PASSWORD_PARAM   = aws_ssm_parameter.password.name
+      HMAC_PARAM       = aws_ssm_parameter.hmac_key.name
+      ORIGIN_SECRET    = random_password.origin_secret.result
+      BEDROCK_MODEL_ID = var.bedrock_model_id
     }
   }
 
