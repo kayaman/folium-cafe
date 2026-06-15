@@ -2425,9 +2425,10 @@ class EpubAdapter implements DocAdapter {
     };
     const c = map[theme] || map.paper;
     try {
+      // override() targets body CSS props (background/color); reliable across the
+      // vendored epub.js. Link color is left to the book's own styles.
       this.rendition.themes.override('background', c.bg, true);
       this.rendition.themes.override('color', c.fg, true);
-      this.rendition.themes.override('a', c.link, true);
     } catch { /* themes API best-effort */ }
   }
 
