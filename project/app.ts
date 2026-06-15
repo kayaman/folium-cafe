@@ -335,6 +335,12 @@ const EN = {
   'settings.increaseTextSize': 'Increase text size',
   'settings.decreaseLineSpacing': 'Decrease line spacing',
   'settings.increaseLineSpacing': 'Increase line spacing',
+  'settings.theme': 'Theme',
+  'theme.system': 'System default',
+  'theme.paper': 'Paper',
+  'theme.sepia': 'Sepia',
+  'theme.dark': 'Dark',
+  'theme.hc': 'High contrast',
 } as const;
 type MsgKey = keyof typeof EN;
 
@@ -486,6 +492,12 @@ const PT: Record<MsgKey, string> = {
   'settings.increaseTextSize': 'Aumentar tamanho do texto',
   'settings.decreaseLineSpacing': 'Diminuir espaçamento',
   'settings.increaseLineSpacing': 'Aumentar espaçamento',
+  'settings.theme': 'Tema',
+  'theme.system': 'Padrão do sistema',
+  'theme.paper': 'Papel',
+  'theme.sepia': 'Sépia',
+  'theme.dark': 'Escuro',
+  'theme.hc': 'Alto contraste',
 };
 
 const ES: Record<MsgKey, string> = {
@@ -636,6 +648,12 @@ const ES: Record<MsgKey, string> = {
   'settings.increaseTextSize': 'Aumentar tamaño del texto',
   'settings.decreaseLineSpacing': 'Disminuir interlineado',
   'settings.increaseLineSpacing': 'Aumentar interlineado',
+  'settings.theme': 'Tema',
+  'theme.system': 'Predeterminado del sistema',
+  'theme.paper': 'Papel',
+  'theme.sepia': 'Sepia',
+  'theme.dark': 'Oscuro',
+  'theme.hc': 'Alto contraste',
 };
 
 const DICTS: Record<Locale, Record<MsgKey, string>> = { en: EN, 'pt-BR': PT, es: ES };
