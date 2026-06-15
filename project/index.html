@@ -6,8 +6,9 @@
 <title>Folium Café</title>
 <meta name="description" content="Folium Café — a private reading room for your PDFs, so you remember the page you were on.">
 <meta name="theme-color" content="#5e261d">
-<meta name="color-scheme" content="only light">
+<meta name="color-scheme" content="light dark">
 <link rel="manifest" href="manifest.webmanifest">
+<script>(function(){try{var p=localStorage.getItem('folium.theme')||'system';var r=p==='system'?(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'paper'):p;document.documentElement.dataset.theme=r;var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',{paper:'#5e261d',sepia:'#7c3327',dark:'#161109',hc:'#000000'}[r]||'#5e261d');}catch(e){}})();</script>
 <link rel="stylesheet" href="styles.css">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
@@ -233,6 +234,16 @@
         <option value="en">English</option>
         <option value="pt-BR">Português (Brasil)</option>
         <option value="es">Español</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="theme-select" data-i18n="settings.theme">Theme</label>
+      <select id="theme-select">
+        <option value="system" data-i18n="theme.system">System default</option>
+        <option value="paper" data-i18n="theme.paper">Paper</option>
+        <option value="sepia" data-i18n="theme.sepia">Sepia</option>
+        <option value="dark" data-i18n="theme.dark">Dark</option>
+        <option value="hc" data-i18n="theme.hc">High contrast</option>
       </select>
     </div>
     <div class="field">

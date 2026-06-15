@@ -346,6 +346,12 @@ const EN = {
   'settings.increaseTextSize': 'Increase text size',
   'settings.decreaseLineSpacing': 'Decrease line spacing',
   'settings.increaseLineSpacing': 'Increase line spacing',
+  'settings.theme': 'Theme',
+  'theme.system': 'System default',
+  'theme.paper': 'Paper',
+  'theme.sepia': 'Sepia',
+  'theme.dark': 'Dark',
+  'theme.hc': 'High contrast',
   'details.title': 'Book details',
   'details.fTitle': 'Title',
   'details.fSubtitle': 'Subtitle',
@@ -516,6 +522,12 @@ const PT: Record<MsgKey, string> = {
   'settings.increaseTextSize': 'Aumentar tamanho do texto',
   'settings.decreaseLineSpacing': 'Diminuir espaçamento',
   'settings.increaseLineSpacing': 'Aumentar espaçamento',
+  'settings.theme': 'Tema',
+  'theme.system': 'Padrão do sistema',
+  'theme.paper': 'Papel',
+  'theme.sepia': 'Sépia',
+  'theme.dark': 'Escuro',
+  'theme.hc': 'Alto contraste',
   'details.title': 'Detalhes do livro',
   'details.fTitle': 'Título',
   'details.fSubtitle': 'Subtítulo',
@@ -685,6 +697,12 @@ const ES: Record<MsgKey, string> = {
   'settings.increaseTextSize': 'Aumentar tamaño del texto',
   'settings.decreaseLineSpacing': 'Disminuir interlineado',
   'settings.increaseLineSpacing': 'Aumentar interlineado',
+  'settings.theme': 'Tema',
+  'theme.system': 'Predeterminado del sistema',
+  'theme.paper': 'Papel',
+  'theme.sepia': 'Sepia',
+  'theme.dark': 'Oscuro',
+  'theme.hc': 'Alto contraste',
   'details.title': 'Detalles del libro',
   'details.fTitle': 'Título',
   'details.fSubtitle': 'Subtítulo',
@@ -1270,6 +1288,7 @@ const LS = {
   clipQueue: 'folium.clipQueue',
   noteQueue: 'folium.noteQueue',
   lang: 'folium.lang',
+  theme: 'folium.theme',
   activeCollection: 'folium.activeCollection',
   readerFontScale: 'folium.readerFontScale',
   readerLineHeight: 'folium.readerLineHeight',
@@ -1299,6 +1318,31 @@ function setReaderLineHeight(v: number): void {
   localStorage.setItem(LS.readerLineHeight, String(readerLineHeight));
   applyReaderType();
 }
+
+// ---------- theme ----------
+type ThemePref = 'system' | 'paper' | 'sepia' | 'dark' | 'hc';
+let themePref: ThemePref = (localStorage.getItem(LS.theme) as ThemePref) || 'system';
+const prefersDark = () => window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+function resolveTheme(p: ThemePref): 'paper' | 'sepia' | 'dark' | 'hc' {
+  if (p === 'system') return prefersDark() ? 'dark' : 'paper';
+  return p;
+}
+const THEME_COLOR: Record<string, string> = { paper: '#5e261d', sepia: '#7c3327', dark: '#161109', hc: '#000000' };
+function applyTheme(): void {
+  const resolved = resolveTheme(themePref);
+  document.documentElement.dataset.theme = resolved;
+  const m = document.querySelector('meta[name="theme-color"]');
+  if (m) m.setAttribute('content', THEME_COLOR[resolved]);
+  const a = reader.adapter as any;
+  if (a && typeof a.applyTheme === 'function') a.applyTheme(resolved);
+}
+function setTheme(p: ThemePref): void {
+  themePref = p;
+  localStorage.setItem(LS.theme, p);
+  applyTheme();
+}
+if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (themePref === 'system') applyTheme(); });
+
 migrateLocalStorage();   // must run before viewMode/reader.width read their keys
 let books: Book[] = [];
 let viewMode: ViewMode = (localStorage.getItem(LS.view) as ViewMode) || 'shelf';
@@ -2179,6 +2223,8 @@ async function paintCanvasPage(
   col.innerHTML = '';
   const wrap = document.createElement('div');
   wrap.className = 'rpage';
+  const fmt = reader.adapter?.format;
+  if (fmt) wrap.setAttribute('data-fmt', fmt);
   wrap.appendChild(canvas);
   reader.cssW = cssW; reader.cssH = cssH; reader.cssScale = cssScale;
   ctx.drawClipOverlay(wrap, cssW, cssH);
@@ -2628,6 +2674,23 @@ class EpubAdapter implements DocAdapter {
     } catch { /* themes API best-effort */ }
   }
 
+  applyTheme(theme: string): void {
+    if (!this.rendition) return;
+    const map: Record<string, { bg: string; fg: string; link: string }> = {
+      paper: { bg: '#efe6d2', fg: '#2a2018', link: '#5e261d' },
+      sepia: { bg: '#f2e8d0', fg: '#3a2c18', link: '#7c3327' },
+      dark:  { bg: '#211b14', fg: '#e8dcc4', link: '#caa24e' },
+      hc:    { bg: '#000000', fg: '#ffffff', link: '#ffd24a' },
+    };
+    const c = map[theme] || map.paper;
+    try {
+      // override() targets body CSS props (background/color); reliable across the
+      // vendored epub.js. Link color is left to the book's own styles.
+      this.rendition.themes.override('background', c.bg, true);
+      this.rendition.themes.override('color', c.fg, true);
+    } catch { /* themes API best-effort */ }
+  }
+
   async render(pos: DocPos, ctx: RenderCtx, _keepScroll: boolean): Promise<void> {
     const token = ctx.token;
     await this.epub.ready;
@@ -2656,6 +2719,7 @@ class EpubAdapter implements DocAdapter {
       this.rendition.on('selected', this.onSelected);
       await this.rendition.display(pos.cfi || this.cfi || undefined);
       this.applyType(readerFontScale, readerLineHeight);
+      this.applyTheme(resolveTheme(themePref));
       this.displayed = true;
       this.generateLocations();
     } else {
@@ -2663,6 +2727,7 @@ class EpubAdapter implements DocAdapter {
       // re-assert type overrides (epub.js may rebuild the iframe on display).
       await this.rendition.display(this.cfi || pos.cfi || undefined);
       this.applyType(readerFontScale, readerLineHeight);
+      this.applyTheme(resolveTheme(themePref));
     }
   }
 
@@ -4192,6 +4257,7 @@ function migrateLocalStorage(): void {
 function wireSettings(): void {
   const modal = el('settings');
   const sel = el<HTMLSelectElement>('lang-select');
+  const themeSel = el<HTMLSelectElement>('theme-select');
   const closeSettings = () => { (modal as any)._untrap?.(); modal.classList.add('hidden'); };
   function syncTypeReadout(): void {
     el('type-size-val').textContent = Math.round(readerFontScale * 100) + '%';
@@ -4203,12 +4269,14 @@ function wireSettings(): void {
   el('type-lh-inc').addEventListener('click', () => { setReaderLineHeight(readerLineHeight + TYPE_LIMITS.lhStep); syncTypeReadout(); });
   el('btn-settings').addEventListener('click', () => {
     sel.value = localStorage.getItem(LS.lang) || 'system';
+    themeSel.value = themePref;
     syncTypeReadout();
     modal.classList.remove('hidden');
     el('dropdown').classList.add('hidden');
     (modal as any)._untrap = trapFocus(modal, sel);
   });
   sel.addEventListener('change', () => setLanguage(sel.value as LangPref));  // applies live
+  themeSel.addEventListener('change', () => setTheme(themeSel.value as ThemePref));
   el('settings-done').addEventListener('click', closeSettings);
   modal.addEventListener('click', (e) => { if (e.target === modal) closeSettings(); });
   document.addEventListener('keydown', (e) => {
@@ -4221,6 +4289,7 @@ function init(): void {
   pluralRules = new Intl.PluralRules(locale);
   applyI18n();
   applyReaderType();
+  applyTheme();
   setupMarked();
   wireAuth();
   wireSettings();
