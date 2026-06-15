@@ -40,8 +40,8 @@ resource "aws_iam_role_policy" "lambda" {
       },
       {
         Effect   = "Allow"
-        Action   = ["ssm:GetParameters"]
-        Resource = [aws_ssm_parameter.password.arn, aws_ssm_parameter.hmac_key.arn]
+        Action   = ["ssm:GetParameters", "ssm:GetParameter"]
+        Resource = [aws_ssm_parameter.password.arn, aws_ssm_parameter.hmac_key.arn, aws_ssm_parameter.signup_allowlist.arn]
       },
       {
         Effect = "Allow"
@@ -81,12 +81,14 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      TABLE_NAME       = aws_dynamodb_table.books.name
-      PDF_BUCKET       = aws_s3_bucket.pdfs.bucket
-      PASSWORD_PARAM   = aws_ssm_parameter.password.name
-      HMAC_PARAM       = aws_ssm_parameter.hmac_key.name
-      ORIGIN_SECRET    = random_password.origin_secret.result
-      BEDROCK_MODEL_ID = var.bedrock_model_id
+      TABLE_NAME          = aws_dynamodb_table.books.name
+      PDF_BUCKET          = aws_s3_bucket.pdfs.bucket
+      PASSWORD_PARAM      = aws_ssm_parameter.password.name
+      HMAC_PARAM          = aws_ssm_parameter.hmac_key.name
+      ORIGIN_SECRET       = random_password.origin_secret.result
+      BEDROCK_MODEL_ID    = var.bedrock_model_id
+      USER_POOL_ID        = aws_cognito_user_pool.users.id
+      USER_POOL_CLIENT_ID = aws_cognito_user_pool_client.bff.id
     }
   }
 
