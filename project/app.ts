@@ -271,6 +271,8 @@ const EN = {
   'share.waiting.other': '{n} items waiting — sign in to shelve them',
   'toast.added': 'Added to your library',
   'toast.offlineRetry': 'You’re offline — try again when you’re back online',
+  'toast.staleServer': 'Couldn’t refresh — showing your saved library',
+  'toast.libLoadFailed': 'Couldn’t load your library — please try again',
   'toast.removed': 'Removed from library',
   'toast.cantOpen': 'Could not open that book',
   'toast.cantLoad': 'Could not load this PDF',
@@ -447,6 +449,8 @@ const PT: Record<MsgKey, string> = {
   'share.waiting.other': '{n} itens aguardando — entre para colocá-los na estante',
   'toast.added': 'Adicionado à sua biblioteca',
   'toast.offlineRetry': 'Você está offline — tente novamente quando voltar a ficar online',
+  'toast.staleServer': 'Não foi possível atualizar — mostrando sua biblioteca salva',
+  'toast.libLoadFailed': 'Não foi possível carregar sua biblioteca — tente novamente',
   'toast.removed': 'Removido da biblioteca',
   'toast.cantOpen': 'Não foi possível abrir esse livro',
   'toast.cantLoad': 'Não foi possível carregar este PDF',
@@ -622,6 +626,8 @@ const ES: Record<MsgKey, string> = {
   'share.waiting.other': '{n} elementos en espera — inicia sesión para añadirlos',
   'toast.added': 'Añadido a tu biblioteca',
   'toast.offlineRetry': 'Estás sin conexión: inténtalo de nuevo cuando vuelvas a estar en línea',
+  'toast.staleServer': 'No se pudo actualizar: mostrando tu biblioteca guardada',
+  'toast.libLoadFailed': 'No se pudo cargar tu biblioteca: inténtalo de nuevo',
   'toast.removed': 'Eliminado de la biblioteca',
   'toast.cantOpen': 'No se pudo abrir ese libro',
   'toast.cantLoad': 'No se pudo cargar este PDF',
@@ -1005,8 +1011,13 @@ async function dbAll(): Promise<BookMeta[]> {
     collections = Array.isArray(body.collections) ? body.collections : [];
     return (body.books ?? []) as BookMeta[];
   };
+  // Tell "reached the server but it failed" (a 5xx/parse error — abnormal, and
+  // previously invisible because we silently served the cache) apart from genuine
+  // offline. The former gets surfaced so a server outage isn't a silent stale view.
+  let reachedServer = false;
   try {
     const res = await api('/books');
+    reachedServer = true;
     if (!res.ok) throw new ApiNetworkError('list ' + res.status);
     const body = await res.json();
     await cache.put('/data-store/books', new Response(JSON.stringify(body))).catch(() => {});
@@ -1014,7 +1025,14 @@ async function dbAll(): Promise<BookMeta[]> {
   } catch (e) {
     if (e instanceof ApiAuthError) throw e;     // real logout — no fallback
     const hit = await cache.match('/data-store/books');
-    if (hit) { setOffline(true); return take(await hit.json()); }
+    if (hit) {
+      setOffline(true);
+      // Genuine offline is expected (offline-first) and stays quiet; a server
+      // failure means the shown library may be stale, so say so.
+      if (reachedServer) toast(t('toast.staleServer'), { error: true });
+      return take(await hit.json());
+    }
+    if (reachedServer) toast(t('toast.libLoadFailed'), { error: true });
     throw e;
   }
 }
