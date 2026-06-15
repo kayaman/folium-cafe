@@ -1,6 +1,7 @@
 import { getConfig } from './config.mjs';
 import { signSession, verifySession, parseCookies, timingSafeEqualStr } from './auth.mjs';
 import * as repo from './repo.mjs';
+import { extractMetadata } from './bedrock.mjs';
 
 const COOKIE = 'folium_session';
 const TTL = 60 * 60 * 24 * 30; // 30 days
@@ -118,6 +119,28 @@ export async function handler(event) {
       return json(200, { ok: true, uploadUrl, contentType });
     }
 
+    // --- AI metadata enrichment (no persistence) ---
+    if (method === 'POST' && path === '/api/enrich') {
+      if (!body.coverImageB64 &&
+          (!Array.isArray(body.pageImagesB64) || !body.pageImagesB64.length) &&
+          !body.pagesText) {
+        return json(400, { error: 'no input' });
+      }
+      try {
+        const fields = await extractMetadata({
+          coverImageB64: body.coverImageB64,
+          coverMime: body.coverMime,
+          pageImagesB64: body.pageImagesB64,
+          pagesText: body.pagesText,
+          formatHint: body.formatHint,
+        });
+        return json(200, { fields });
+      } catch (err) {
+        console.error('enrich error', err);
+        return json(502, { error: 'enrich failed' });
+      }
+    }
+
     const m = path.match(/^\/api\/books\/([^/]+)(\/url|\/progress|\/collections)?$/);
     if (m) {
       const id = decodeURIComponent(m[1]);
@@ -148,6 +171,16 @@ export async function handler(event) {
           await repo.updateProgress(id, parsed.currentPage, lastReadAt, parsed.frac);
         } else {
           await repo.updateProgressGeneric(id, parsed.progress, lastReadAt);
+        }
+        return json(200, { ok: true });
+      }
+      if (method === 'PATCH' && !sub) {
+        // Allowlisted metadata patch (repo.updateBookMeta drops unknown keys).
+        try {
+          await repo.updateBookMeta(id, body);
+        } catch (err) {
+          if (err?.name === 'ConditionalCheckFailedException') return json(404, { error: 'not found' });
+          throw err;
         }
         return json(200, { ok: true });
       }
