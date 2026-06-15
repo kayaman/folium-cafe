@@ -12,6 +12,11 @@ resource "aws_dynamodb_table" "books" {
     name = "id"
     type = "S"
   }
+
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
 }
 
 resource "aws_s3_bucket" "pdfs" {

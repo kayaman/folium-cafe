@@ -19,3 +19,17 @@ resource "aws_ssm_parameter" "hmac_key" {
     ignore_changes = [value]
   }
 }
+
+# Invite-only signup allowlist (JSON array of emails or "@domain" entries).
+# Read at runtime by the pre-sign-up trigger; set out-of-band:
+#   aws ssm put-parameter --name /folium-cafe/signup_allowlist \
+#     --type SecureString --overwrite --value '["you@example.com"]'
+resource "aws_ssm_parameter" "signup_allowlist" {
+  name  = "/${var.name_prefix}/signup_allowlist"
+  type  = "SecureString"
+  value = "[]"
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
