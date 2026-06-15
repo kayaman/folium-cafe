@@ -320,7 +320,8 @@ const EN = {
   'coll.rename': 'Rename',
   'coll.delete': 'Delete',
   'coll.confirmDelete': 'Delete the collection “{name}”? Your books stay; only the grouping is removed.',
-  'coll.assignTitle': 'Add to collections',
+  'coll.assignTitle': 'Collection',
+  'coll.noneOption': 'None',
   'coll.save': 'Save',
   'coll.none': 'No collections yet — create one to group your books.',
   'coll.empty': 'Nothing in this collection yet.',
@@ -366,6 +367,7 @@ const EN = {
   'details.fIsbn': 'ISBN',
   'details.fLanguage': 'Language',
   'details.fDescription': 'Description',
+  'details.fCollection': 'Collection',
   'details.fillAI': 'Fill with AI',
   'details.aiLoading': 'Reading the cover…',
   'details.aiFilled': 'Filled in what we could find',
@@ -498,7 +500,8 @@ const PT: Record<MsgKey, string> = {
   'coll.rename': 'Renomear',
   'coll.delete': 'Excluir',
   'coll.confirmDelete': 'Excluir a coleção “{name}”? Seus livros permanecem; só o agrupamento é removido.',
-  'coll.assignTitle': 'Adicionar às coleções',
+  'coll.assignTitle': 'Coleção',
+  'coll.noneOption': 'Nenhuma',
   'coll.save': 'Salvar',
   'coll.none': 'Nenhuma coleção ainda — crie uma para agrupar seus livros.',
   'coll.empty': 'Nada nesta coleção ainda.',
@@ -544,6 +547,7 @@ const PT: Record<MsgKey, string> = {
   'details.fIsbn': 'ISBN',
   'details.fLanguage': 'Idioma',
   'details.fDescription': 'Descrição',
+  'details.fCollection': 'Coleção',
   'details.fillAI': 'Preencher com IA',
   'details.aiLoading': 'Lendo a capa…',
   'details.aiFilled': 'Preenchemos o que encontramos',
@@ -675,7 +679,8 @@ const ES: Record<MsgKey, string> = {
   'coll.rename': 'Renombrar',
   'coll.delete': 'Eliminar',
   'coll.confirmDelete': '¿Eliminar la colección “{name}”? Tus libros permanecen; solo se quita la agrupación.',
-  'coll.assignTitle': 'Añadir a colecciones',
+  'coll.assignTitle': 'Colección',
+  'coll.noneOption': 'Ninguna',
   'coll.save': 'Guardar',
   'coll.none': 'Aún no hay colecciones — crea una para agrupar tus libros.',
   'coll.empty': 'Nada en esta colección todavía.',
@@ -721,6 +726,7 @@ const ES: Record<MsgKey, string> = {
   'details.fIsbn': 'ISBN',
   'details.fLanguage': 'Idioma',
   'details.fDescription': 'Descripción',
+  'details.fCollection': 'Colección',
   'details.fillAI': 'Rellenar con IA',
   'details.aiLoading': 'Leyendo la portada…',
   'details.aiFilled': 'Rellenamos lo que pudimos encontrar',
@@ -1743,6 +1749,7 @@ async function ingest(file: File | { name: string; buf: ArrayBuffer; type?: stri
     // media we attach the bytes only for this upload, then make the offline copy
     // for the byte-backed formats. Audio/video are online-only — they must NEVER
     // go through cachePdf / the PDF LRU (large files would blow the quota guard).
+    if (activeCollection) book.collections = [activeCollection];
     book.data = buf;
     await dbPut(book);
     if (format !== 'audio' && format !== 'video') {
@@ -1798,6 +1805,15 @@ function noteBadge(b: Book): string {
   return `<span class="note-badge">${kind}</span>`;
 }
 
+// The collection name to badge on a card, or '' when the book is uncollected or
+// in a collection we don't know about. Notes are never collected.
+function collectionBadge(b: Book): string {
+  const cid = bookCollection(b);
+  const c = cid ? collections.find(x => x.id === cid) : null;
+  const name = c ? c.name : '';
+  return name ? `<span class="coll-badge" title="${escapeHtml(name)}">${escapeHtml(name)}</span>` : '';
+}
+
 function coverMarkup(b: Book): string {
   const offdot = offlineIds.has(b.id) ? `<span class="offdot" title="${t('lib.offlineDot')}"></span>` : '';
   if (isNote(b)) {
@@ -1813,6 +1829,7 @@ function coverMarkup(b: Book): string {
   }
   if (b.cover) {
     return `<div class="cover" style="background-image:url('${b.cover}')"><span class="spine"></span>${offdot}` +
+      collectionBadge(b) +
       (b.lastReadAt ? `<span class="pct">${pct(b)}%</span>` : '') +
       detailsBtn(b) +
       `<button class="cardmenu" data-menu="${b.id}" title="${t('card.menu')}">⋮</button>` +
@@ -1825,6 +1842,7 @@ function coverMarkup(b: Book): string {
         <div class="grule"></div>
         <div class="ga">${escapeHtml(b.author || initials) || t('lib.unknown')}</div>
       </div>` +
+    collectionBadge(b) +
     (b.lastReadAt ? `<span class="pct">${pct(b)}%</span>` : '') +
     detailsBtn(b) +
     `<button class="cardmenu" data-menu="${b.id}" title="${t('card.menu')}">⋮</button>` +
@@ -1870,7 +1888,7 @@ function renderList(list: Book[]): string {
       : `<div class="rcv"><div class="gen-cover"><div class="gt">${escapeHtml(b.title)}</div></div></div>`;
     return `<div class="row" data-open="${b.id}">
       ${cv}
-      <div class="rmeta"><div class="rt">${escapeHtml(b.title)}</div><div class="ra">${escapeHtml(b.author) || t('lib.unknownAuthor')}</div></div>
+      <div class="rmeta"><div class="rt">${escapeHtml(b.title)}${collectionBadge(b)}</div><div class="ra">${escapeHtml(b.author) || t('lib.unknownAuthor')}</div></div>
       <div class="rprog"><div class="progress"><i style="width:${pct(b)}%"></i></div><span class="progress-num">${b.lastReadAt ? pct(b) + '%' : t('lib.new')}</span></div>
       <div class="rwhen">${relTime(b.lastReadAt)}</div>
       <button class="rresume" data-open="${b.id}">${ICON.play}${b.lastReadAt ? t('lib.resume') : t('lib.read')}</button>
@@ -1979,15 +1997,23 @@ async function deleteCollectionFlow(id: string): Promise<void> {
   renderLibrary();
 }
 
-// Per-book collection assignment: a checklist modal (#coll-picker) that PUTs the
-// book's full membership set. Opened from a card's ⋮ button.
+// A book belongs to AT MOST ONE collection — the model stays string[] but we
+// constrain it to 0 or 1 element. These helpers read the single membership and
+// build the shared <select> options used by both assignment surfaces.
+function bookCollection(b: Book): string | null { return (b.collections && b.collections[0]) || null; }
+function collectionOptions(selectedId: string | null): string {
+  return `<option value="">${t('coll.noneOption')}</option>` +
+    collections.map(c => `<option value="${c.id}"${c.id === selectedId ? ' selected' : ''}>${escapeHtml(c.name || t('coll.new'))}</option>`).join('');
+}
+
+// Per-book collection assignment: a single-select modal (#coll-picker) that PUTs
+// the book's membership (0 or 1 collection). Opened from a card's ⋮ button.
 let pickerBookId: string | null = null;
 function openCollectionPicker(bookId: string): void {
   const b = books.find(x => x.id === bookId); if (!b) return;
   pickerBookId = bookId;
-  const cur = new Set(b.collections || []);
   el('coll-picker-list').innerHTML = collections.length
-    ? collections.map(c => `<label class="coll-check"><input type="checkbox" value="${c.id}" ${cur.has(c.id) ? 'checked' : ''}> ${escapeHtml(c.name || t('coll.new'))}</label>`).join('')
+    ? '<select id="coll-picker-select" class="coll-select">' + collectionOptions(bookCollection(b)) + '</select>'
     : `<p class="coll-none">${t('coll.none')}</p>`;
   const picker = el('coll-picker');
   picker.classList.remove('hidden');
@@ -2001,7 +2027,8 @@ function closeCollectionPicker(): void {
 }
 async function saveCollectionPicker(): Promise<void> {
   if (!pickerBookId) return;
-  const ids = Array.from(el('coll-picker-list').querySelectorAll('input:checked')).map(i => (i as HTMLInputElement).value);
+  const sel = document.getElementById('coll-picker-select') as HTMLSelectElement | null;
+  const ids = sel && sel.value ? [sel.value] : [];
   try { await apiSetBookCollections(pickerBookId, ids); }
   catch (e) { if (e instanceof ApiNetworkError) { toast(t('toast.offlineRetry')); return; } throw e; }
   const b = books.find(x => x.id === pickerBookId); if (b) b.collections = ids;
@@ -2036,6 +2063,7 @@ function openBookDetails(id: string): void {
   bdInput('isbn').value = b.isbn || '';
   bdInput('language').value = b.language || '';
   bdInput('description').value = b.description || '';
+  el('bd-f-collection').innerHTML = collectionOptions(bookCollection(b));
   const modal = el('book-details');
   modal.classList.remove('hidden');
   (modal as any)._untrap = trapFocus(modal, bdInput('title'));
@@ -2085,6 +2113,8 @@ async function saveBookDetails(): Promise<void> {
   const str = (f: string) => { const v = bdInput(f).value.trim(); return v ? v : undefined; };
   const yearRaw = bdInput('year').value.trim();
   const year = yearRaw ? parseInt(yearRaw, 10) : NaN;
+  const csel = el('bd-f-collection') as HTMLSelectElement;
+  const cids = csel.value ? [csel.value] : [];
   const fields: Partial<Book> = {
     title: bdInput('title').value.trim() || t('lib.unknown'),
     subtitle: str('subtitle'),
@@ -2096,6 +2126,7 @@ async function saveBookDetails(): Promise<void> {
     isbn: str('isbn'),
     language: str('language'),
     description: str('description'),
+    collections: cids,
   };
   if (!Number.isNaN(year)) fields.year = year;
   try {

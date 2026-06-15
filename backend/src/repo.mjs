@@ -256,6 +256,7 @@ export async function updateNoteMeta(id, fields) {
 export const BOOK_META_FIELDS = new Set([
   'title', 'author', 'subtitle', 'authors', 'edition',
   'publisher', 'year', 'isbn', 'language', 'series', 'description',
+  'collections',
 ]);
 
 // Update whichever allowlisted book-metadata fields are present. Mirrors
