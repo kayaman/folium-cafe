@@ -405,14 +405,25 @@ button{font-family:inherit;cursor:pointer}
 #toast.error{background:var(--leather)}
 
 @media (max-width:760px){
-  .masthead-inner{gap:12px;padding:0 14px}
+  .masthead-inner{gap:10px;padding:0 14px}
   .brand .sub{display:none}
-  .viewswitch button{padding:8px 10px}
+  .brand .mark{font-size:23px;letter-spacing:.04em}
+  .viewswitch button{padding:8px 9px}
   .mast-btn span{display:none}
+  .mast-btn{padding:9px 12px}
+  .mast-btn .caret{display:none}
   .lib-wrap{padding:24px 16px 80px}
   .row .rprog,.row .rwhen{display:none}
   .rbar .rtitle .t{max-width:38vw}
   .rbar .seg,.continue .ca{}
+}
+@media (max-width:380px){
+  .masthead-inner{gap:8px;padding:0 12px}
+  .brand .mark{font-size:21px}
+  .viewswitch{padding:2px}
+  .viewswitch button{padding:8px 7px}
+  .mast-btn{padding:9px 10px}
+  .avatar{width:34px;height:34px;font-size:15px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none !important;animation-duration:.01ms !important}}
 /* ============================================================
