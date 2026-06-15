@@ -1202,6 +1202,7 @@ const LS = {
   clipQueue: 'folium.clipQueue',
   noteQueue: 'folium.noteQueue',
   lang: 'folium.lang',
+  theme: 'folium.theme',
   activeCollection: 'folium.activeCollection',
   readerFontScale: 'folium.readerFontScale',
   readerLineHeight: 'folium.readerLineHeight',
@@ -1231,6 +1232,31 @@ function setReaderLineHeight(v: number): void {
   localStorage.setItem(LS.readerLineHeight, String(readerLineHeight));
   applyReaderType();
 }
+
+// ---------- theme ----------
+type ThemePref = 'system' | 'paper' | 'sepia' | 'dark' | 'hc';
+let themePref: ThemePref = (localStorage.getItem(LS.theme) as ThemePref) || 'system';
+const prefersDark = () => window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+function resolveTheme(p: ThemePref): 'paper' | 'sepia' | 'dark' | 'hc' {
+  if (p === 'system') return prefersDark() ? 'dark' : 'paper';
+  return p;
+}
+const THEME_COLOR: Record<string, string> = { paper: '#5e261d', sepia: '#7c3327', dark: '#161109', hc: '#000000' };
+function applyTheme(): void {
+  const resolved = resolveTheme(themePref);
+  document.documentElement.dataset.theme = resolved;
+  const m = document.querySelector('meta[name="theme-color"]');
+  if (m) m.setAttribute('content', THEME_COLOR[resolved]);
+  const a = reader.adapter as any;
+  if (a && typeof a.applyTheme === 'function') a.applyTheme(resolved);
+}
+function setTheme(p: ThemePref): void {
+  themePref = p;
+  localStorage.setItem(LS.theme, p);
+  applyTheme();
+}
+if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (themePref === 'system') applyTheme(); });
+
 migrateLocalStorage();   // must run before viewMode/reader.width read their keys
 let books: Book[] = [];
 let viewMode: ViewMode = (localStorage.getItem(LS.view) as ViewMode) || 'shelf';
@@ -3933,6 +3959,7 @@ function migrateLocalStorage(): void {
 function wireSettings(): void {
   const modal = el('settings');
   const sel = el<HTMLSelectElement>('lang-select');
+  const themeSel = el<HTMLSelectElement>('theme-select');
   const closeSettings = () => { (modal as any)._untrap?.(); modal.classList.add('hidden'); };
   function syncTypeReadout(): void {
     el('type-size-val').textContent = Math.round(readerFontScale * 100) + '%';
@@ -3944,12 +3971,14 @@ function wireSettings(): void {
   el('type-lh-inc').addEventListener('click', () => { setReaderLineHeight(readerLineHeight + TYPE_LIMITS.lhStep); syncTypeReadout(); });
   el('btn-settings').addEventListener('click', () => {
     sel.value = localStorage.getItem(LS.lang) || 'system';
+    themeSel.value = themePref;
     syncTypeReadout();
     modal.classList.remove('hidden');
     el('dropdown').classList.add('hidden');
     (modal as any)._untrap = trapFocus(modal, sel);
   });
   sel.addEventListener('change', () => setLanguage(sel.value as LangPref));  // applies live
+  themeSel.addEventListener('change', () => setTheme(themeSel.value as ThemePref));
   el('settings-done').addEventListener('click', closeSettings);
   modal.addEventListener('click', (e) => { if (e.target === modal) closeSettings(); });
   document.addEventListener('keydown', (e) => {
@@ -3962,6 +3991,7 @@ function init(): void {
   pluralRules = new Intl.PluralRules(locale);
   applyI18n();
   applyReaderType();
+  applyTheme();
   setupMarked();
   wireAuth();
   wireSettings();
