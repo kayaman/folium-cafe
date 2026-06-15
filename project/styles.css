@@ -672,3 +672,9 @@ body{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-ri
   background:var(--input-bg);color:var(--ink);font-family:var(--display);font-weight:600;font-size:15px;transition:var(--t-fast) var(--ease)}
 .stepper-btn:hover{border-color:var(--leather-2);background:var(--card)}
 .stepper-val{min-width:54px;text-align:center;font-family:var(--read);font-size:14px;color:var(--muted)}
+
+/* PDF night mode: invert only the PDF canvas under dark/hc themes; the text
+   layer and clip overlays are siblings of the canvas, so they stay oriented.
+   CBZ comics (data-fmt="cbz") are intentionally not inverted. */
+html[data-theme="dark"] .rpage[data-fmt="pdf"] canvas,
+html[data-theme="hc"] .rpage[data-fmt="pdf"] canvas{filter:invert(1) hue-rotate(180deg)}

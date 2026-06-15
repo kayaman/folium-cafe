@@ -1964,6 +1964,8 @@ async function paintCanvasPage(
   col.innerHTML = '';
   const wrap = document.createElement('div');
   wrap.className = 'rpage';
+  const fmt = reader.adapter?.format;
+  if (fmt) wrap.setAttribute('data-fmt', fmt);
   wrap.appendChild(canvas);
   reader.cssW = cssW; reader.cssH = cssH; reader.cssScale = cssScale;
   ctx.drawClipOverlay(wrap, cssW, cssH);
