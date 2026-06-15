@@ -6,7 +6,7 @@ import {
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
-const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+export const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const s3 = new S3Client({});
 
 const TABLE = process.env.TABLE_NAME;
@@ -138,21 +138,30 @@ export async function deleteCollection(id) {
 export const isLinkedMedia = (item) => !!item && typeof item.url === 'string' && item.url.length > 0;
 
 export async function listBooks() {
-  const out = await ddb.send(new QueryCommand({
-    TableName: TABLE,
-    KeyConditionExpression: 'pk = :pk',
-    // Book ids are `b…`, notes `n…`, clips carry `#hl#`; begins_with 'coll' only
-    // excludes collection records, so books/notes are unaffected.
-    FilterExpression: 'NOT contains(#id, :sep) AND NOT begins_with(#id, :coll)',
-    ExpressionAttributeNames: { '#id': 'id' },
-    ExpressionAttributeValues: { ':pk': PK, ':sep': CLIP_SEP, ':coll': COLL_PREFIX },
-  }));
+  // Query the whole partition (paginated) and exclude clip + collection records
+  // in app code. A DynamoDB FilterExpression CANNOT reference `id` (the sort key)
+  // — doing so throws ValidationException and 500s every GET /api/books.
+  const items = [];
+  let ExclusiveStartKey;
+  do {
+    const out = await ddb.send(new QueryCommand({
+      TableName: TABLE,
+      KeyConditionExpression: 'pk = :pk',
+      ExpressionAttributeValues: { ':pk': PK },
+      ExclusiveStartKey,
+    }));
+    items.push(...(out.Items ?? []));
+    ExclusiveStartKey = out.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+  // Books are `b…`, notes `n…`; drop clips (`#hl#`) and collection records (`coll…`).
   // Strip the partition key; default legacy items to pdf and normalize collections.
-  return (out.Items ?? []).map(({ pk, ...rest }) => ({
-    ...rest,
-    format: rest.format ?? 'pdf',
-    collections: normalizeCollections(rest),
-  }));
+  return items
+    .filter(({ id }) => !isClipItem(id) && !isCollectionId(id))
+    .map(({ pk, ...rest }) => ({
+      ...rest,
+      format: rest.format ?? 'pdf',
+      collections: normalizeCollections(rest),
+    }));
 }
 
 export async function listClippings(bookId) {
