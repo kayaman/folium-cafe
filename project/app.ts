@@ -2415,6 +2415,22 @@ class EpubAdapter implements DocAdapter {
     } catch { /* themes API best-effort */ }
   }
 
+  applyTheme(theme: string): void {
+    if (!this.rendition) return;
+    const map: Record<string, { bg: string; fg: string; link: string }> = {
+      paper: { bg: '#efe6d2', fg: '#2a2018', link: '#5e261d' },
+      sepia: { bg: '#f2e8d0', fg: '#3a2c18', link: '#7c3327' },
+      dark:  { bg: '#211b14', fg: '#e8dcc4', link: '#caa24e' },
+      hc:    { bg: '#000000', fg: '#ffffff', link: '#ffd24a' },
+    };
+    const c = map[theme] || map.paper;
+    try {
+      this.rendition.themes.override('background', c.bg, true);
+      this.rendition.themes.override('color', c.fg, true);
+      this.rendition.themes.override('a', c.link, true);
+    } catch { /* themes API best-effort */ }
+  }
+
   async render(pos: DocPos, ctx: RenderCtx, _keepScroll: boolean): Promise<void> {
     const token = ctx.token;
     await this.epub.ready;
@@ -2443,6 +2459,7 @@ class EpubAdapter implements DocAdapter {
       this.rendition.on('selected', this.onSelected);
       await this.rendition.display(pos.cfi || this.cfi || undefined);
       this.applyType(readerFontScale, readerLineHeight);
+      this.applyTheme(resolveTheme(themePref));
       this.displayed = true;
       this.generateLocations();
     } else {
@@ -2450,6 +2467,7 @@ class EpubAdapter implements DocAdapter {
       // re-assert type overrides (epub.js may rebuild the iframe on display).
       await this.rendition.display(this.cfi || pos.cfi || undefined);
       this.applyType(readerFontScale, readerLineHeight);
+      this.applyTheme(resolveTheme(themePref));
     }
   }
 
