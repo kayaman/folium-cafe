@@ -4085,6 +4085,28 @@ function wireLinkSheet(): void {
 //  BOOT
 // ============================================================
 let booted = false;
+
+// Pull the library list, retrying a transient launch-time network failure.
+// Installed PWAs routinely cold-start before the radio/DNS is ready: the first
+// /api/books rejects while navigator.onLine is already true, so the 'online'
+// event never fires to trigger a retry. Without this, a fresh device (no cached
+// snapshot) is stranded on an empty shelf — which reads as "my books didn't
+// sync across devices". A cached snapshot short-circuits dbAll (no throw), so
+// these retries only ever run on the genuine fresh-device case.
+async function loadLibrary(): Promise<void> {
+  const backoff = [800, 1600, 3200];
+  for (let attempt = 0; ; attempt++) {
+    try {
+      books = (await dbAll()) as unknown as Book[];
+      return;
+    } catch (e) {
+      if (e instanceof ApiAuthError) throw e;   // real logout — api() already showed login
+      if (attempt >= backoff.length) throw e;   // give up; caller shows an empty shelf
+      await new Promise((r) => setTimeout(r, backoff[attempt]));
+    }
+  }
+}
+
 async function boot(): Promise<void> {
   if (booted) { renderLibrary(); return; }
   booted = true;
@@ -4093,11 +4115,11 @@ async function boot(): Promise<void> {
   flushNoteQueue();       // replay note-body edits queued offline
   await refreshOfflineIds();
   try {
-    books = (await dbAll()) as unknown as Book[];
+    await loadLibrary();
   } catch (e) {
     console.error('api error', e);
     books = [];
-    booted = false;       // first-run offline: let a later 'online' event retry
+    booted = false;       // first-run offline: a later resync (online/foreground) retries
   }
   // Drop a stale active filter if its collection no longer exists.
   if (activeCollection && !collections.some(c => c.id === activeCollection)) {
@@ -4106,6 +4128,29 @@ async function boot(): Promise<void> {
   renderLibrary();
   await handleLaunchParams();
   await drainLaunchFiles();   // shelve files opened with Folium before sign-in
+}
+
+// Re-pull the library from the server when the device comes back online or the
+// app returns to the foreground. This is what actually keeps an installed PWA in
+// sync across devices: cold-start handles the first load, but a long-lived PWA
+// that's resumed (not reloaded) would otherwise keep showing whatever it had
+// when last backgrounded. Cheap and idempotent — dbAll is network-first and the
+// flushes no-op when offline. Skipped on the login screen and while a book is
+// open so it never clobbers active reading state.
+async function resyncLibrary(): Promise<void> {
+  flushProgressQueue();
+  flushClipQueue();
+  flushNoteQueue();
+  if (el('app').classList.contains('hidden')) return;     // not signed in
+  if (el('reader').classList.contains('show')) return;    // mid-read — leave it be
+  if (!booted) { await boot(); return; }                  // the initial load never succeeded
+  try {
+    books = (await dbAll()) as unknown as Book[];
+    if (activeCollection && !collections.some(c => c.id === activeCollection)) {
+      activeCollection = null; localStorage.removeItem(LS.activeCollection);
+    }
+    renderLibrary();
+  } catch { /* offline or logged out — dbAll()/api() already drove the UI */ }
 }
 
 // Deep links: ?continue=1 (app shortcut) and ?shared=1 (share_target redirect).
@@ -4261,11 +4306,13 @@ function wirePwa(): void {
   // Ask Android to protect our caches (PDFs) from storage-pressure eviction.
   navigator.storage?.persist?.().catch(() => {});
 
-  window.addEventListener('online', () => {
-    flushProgressQueue();
-    flushClipQueue();
-    flushNoteQueue();
-    if (!el('app').classList.contains('hidden')) { booted = false; boot(); }
+  window.addEventListener('online', () => { void resyncLibrary(); });
+  // Foreground resume: the 'online' event is unreliable on mobile PWAs (the OS
+  // often reports online before requests actually succeed), so re-sync whenever
+  // the app becomes visible again — the moment a user expects to see what they
+  // added on another device.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') void resyncLibrary();
   });
 
   let deferredInstall: any = null;
