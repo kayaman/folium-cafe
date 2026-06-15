@@ -177,6 +177,27 @@
   </div>
 </div>
 
+<div id="book-details" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="bd-title">
+  <div class="settings-card">
+    <div class="smallcaps" id="bd-title" data-i18n="details.title">Book details</div>
+    <div class="field"><label data-i18n="details.fTitle">Title</label><input id="bd-f-title" type="text"></div>
+    <div class="field"><label data-i18n="details.fSubtitle">Subtitle</label><input id="bd-f-subtitle" type="text"></div>
+    <div class="field"><label data-i18n="details.fAuthors">Authors</label><input id="bd-f-authors" type="text" data-i18n-placeholder="details.authorsPh"></div>
+    <div class="field"><label data-i18n="details.fSeries">Series</label><input id="bd-f-series" type="text"></div>
+    <div class="field"><label data-i18n="details.fEdition">Edition</label><input id="bd-f-edition" type="text"></div>
+    <div class="field"><label data-i18n="details.fPublisher">Publisher</label><input id="bd-f-publisher" type="text"></div>
+    <div class="field"><label data-i18n="details.fYear">Year</label><input id="bd-f-year" type="number" inputmode="numeric"></div>
+    <div class="field"><label data-i18n="details.fIsbn">ISBN</label><input id="bd-f-isbn" type="text"></div>
+    <div class="field"><label data-i18n="details.fLanguage">Language</label><input id="bd-f-language" type="text"></div>
+    <div class="field"><label data-i18n="details.fDescription">Description</label><textarea id="bd-f-description" rows="4"></textarea></div>
+    <div class="coll-picker-actions">
+      <button class="mast-btn" id="bd-ai" data-i18n="details.fillAI">Fill with AI</button>
+      <button class="mast-btn" id="bd-cancel" data-i18n="confirm.cancel">Cancel</button>
+      <button class="mast-btn brass" id="bd-save" data-i18n="coll.save">Save</button>
+    </div>
+  </div>
+</div>
+
 <div id="confirm-dialog" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
   <div class="settings-card">
     <div class="smallcaps" id="confirm-title" data-i18n="confirm.title">Please confirm</div>

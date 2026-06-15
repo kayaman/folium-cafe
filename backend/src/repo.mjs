@@ -241,6 +241,38 @@ export async function updateNoteMeta(id, fields) {
   }));
 }
 
+// Server-side allowlist for PATCH /api/books/{id}. Any key not here (or whose
+// value is undefined) is dropped before building the UpdateExpression — the
+// client can never set arbitrary attributes.
+export const BOOK_META_FIELDS = new Set([
+  'title', 'author', 'subtitle', 'authors', 'edition',
+  'publisher', 'year', 'isbn', 'language', 'series', 'description',
+]);
+
+// Update whichever allowlisted book-metadata fields are present. Mirrors
+// updateNoteMeta: dynamic `SET #k = :k` with name aliasing for every field
+// (covers reserved words like `language`). No-ops when nothing is settable.
+export async function updateBookMeta(id, fields) {
+  const sets = [];
+  const names = {};
+  const values = {};
+  for (const [k, v] of Object.entries(fields ?? {})) {
+    if (!BOOK_META_FIELDS.has(k) || v === undefined) continue;
+    sets.push(`#${k} = :${k}`);
+    names[`#${k}`] = k;
+    values[`:${k}`] = v;
+  }
+  if (sets.length === 0) return;
+  await ddb.send(new UpdateCommand({
+    TableName: TABLE,
+    Key: { pk: PK, id },
+    UpdateExpression: `SET ${sets.join(', ')}`,
+    ConditionExpression: 'attribute_exists(id)',
+    ExpressionAttributeNames: names,
+    ExpressionAttributeValues: values,
+  }));
+}
+
 export async function getBook(id) {
   const out = await ddb.send(new GetCommand({ TableName: TABLE, Key: { pk: PK, id } }));
   if (!out.Item) return null;

@@ -152,6 +152,17 @@ interface Book {
   collections?: string[];     // collection ids this book belongs to
   url?: string;               // linked external media: https stream URL (no stored bytes)
   provider?: string | null;   // linked media: free-text provider passthrough
+  // Enriched bibliographic metadata (AI fill / manual edit). `author` above stays
+  // the display string; `authors` is the structured list it's joined from.
+  subtitle?: string;
+  authors?: string[];
+  edition?: string;
+  publisher?: string;
+  year?: number;
+  isbn?: string;
+  language?: string;
+  series?: string;
+  description?: string;
 }
 // A user-defined grouping of books. Membership lives on each Book.collections.
 type Collection = { id: string; name: string; createdAt: number };
@@ -341,6 +352,25 @@ const EN = {
   'theme.sepia': 'Sepia',
   'theme.dark': 'Dark',
   'theme.hc': 'High contrast',
+  'details.title': 'Book details',
+  'details.fTitle': 'Title',
+  'details.fSubtitle': 'Subtitle',
+  'details.fAuthors': 'Authors',
+  'details.authorsPh': 'Separate names with commas',
+  'details.fSeries': 'Series',
+  'details.fEdition': 'Edition',
+  'details.fPublisher': 'Publisher',
+  'details.fYear': 'Year',
+  'details.fIsbn': 'ISBN',
+  'details.fLanguage': 'Language',
+  'details.fDescription': 'Description',
+  'details.fillAI': 'Fill with AI',
+  'details.aiLoading': 'Reading the cover…',
+  'details.aiFilled': 'Filled in what we could find',
+  'details.aiError': 'Could not read the metadata',
+  'details.aiOffline': 'You’re offline — try again when online',
+  'details.saved': 'Details saved',
+  'details.menuItem': 'Details',
 } as const;
 type MsgKey = keyof typeof EN;
 
@@ -498,6 +528,25 @@ const PT: Record<MsgKey, string> = {
   'theme.sepia': 'Sépia',
   'theme.dark': 'Escuro',
   'theme.hc': 'Alto contraste',
+  'details.title': 'Detalhes do livro',
+  'details.fTitle': 'Título',
+  'details.fSubtitle': 'Subtítulo',
+  'details.fAuthors': 'Autores',
+  'details.authorsPh': 'Separe os nomes por vírgulas',
+  'details.fSeries': 'Série',
+  'details.fEdition': 'Edição',
+  'details.fPublisher': 'Editora',
+  'details.fYear': 'Ano',
+  'details.fIsbn': 'ISBN',
+  'details.fLanguage': 'Idioma',
+  'details.fDescription': 'Descrição',
+  'details.fillAI': 'Preencher com IA',
+  'details.aiLoading': 'Lendo a capa…',
+  'details.aiFilled': 'Preenchemos o que encontramos',
+  'details.aiError': 'Não foi possível ler os metadados',
+  'details.aiOffline': 'Você está offline — tente novamente quando estiver online',
+  'details.saved': 'Detalhes salvos',
+  'details.menuItem': 'Detalhes',
 };
 
 const ES: Record<MsgKey, string> = {
@@ -654,6 +703,25 @@ const ES: Record<MsgKey, string> = {
   'theme.sepia': 'Sepia',
   'theme.dark': 'Oscuro',
   'theme.hc': 'Alto contraste',
+  'details.title': 'Detalles del libro',
+  'details.fTitle': 'Título',
+  'details.fSubtitle': 'Subtítulo',
+  'details.fAuthors': 'Autores',
+  'details.authorsPh': 'Separa los nombres con comas',
+  'details.fSeries': 'Serie',
+  'details.fEdition': 'Edición',
+  'details.fPublisher': 'Editorial',
+  'details.fYear': 'Año',
+  'details.fIsbn': 'ISBN',
+  'details.fLanguage': 'Idioma',
+  'details.fDescription': 'Descripción',
+  'details.fillAI': 'Rellenar con IA',
+  'details.aiLoading': 'Leyendo la portada…',
+  'details.aiFilled': 'Rellenamos lo que pudimos encontrar',
+  'details.aiError': 'No se pudieron leer los metadatos',
+  'details.aiOffline': 'Estás sin conexión — inténtalo de nuevo cuando estés en línea',
+  'details.saved': 'Detalles guardados',
+  'details.menuItem': 'Detalles',
 };
 
 const DICTS: Record<Locale, Record<MsgKey, string>> = { en: EN, 'pt-BR': PT, es: ES };
@@ -1440,6 +1508,81 @@ function renderImageCover(img: HTMLImageElement): string | null {
   } catch { return null; }
 }
 
+// A small ~480px-wide JPEG of a PDF page, returned as RAW base64 (no data: prefix)
+// for the AI enrichment endpoint. Modeled on renderCover but wider and at a lower
+// quality, since the bytes ship over the wire. Returns null on render failure.
+async function pageToJpegB64(page: any): Promise<string | null> {
+  try {
+    const target = 480;
+    const v1 = page.getViewport({ scale: 1 });
+    const scale = target / v1.width;
+    const vp = page.getViewport({ scale });
+    const c = document.createElement('canvas');
+    c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+    await page.render({ canvasContext: c.getContext('2d')!, viewport: vp }).promise;
+    const url = c.toDataURL('image/jpeg', 0.7);
+    const comma = url.indexOf(',');
+    return comma >= 0 ? url.slice(comma + 1) : null;
+  } catch { return null; }
+}
+
+// Collect AI-enrichment inputs for a book WITHOUT re-uploading its bytes: the
+// already-stored cover dataURL, and (for PDFs) text + a few page images pulled
+// from the cached/presigned bytes via dbGet. Returns null for formats we can't
+// enrich, or an inputs object the backend's POST /api/enrich consumes.
+async function gatherEnrichInputs(b: Book): Promise<{ coverImageB64?: string; coverMime?: string; pageImagesB64?: string[]; pagesText?: string; formatHint: string } | null> {
+  const fmt = b.format ?? 'pdf';
+  if (!['pdf', 'epub', 'cbz', 'txt', 'md'].includes(fmt)) return null;
+  const out: { coverImageB64?: string; coverMime?: string; pageImagesB64?: string[]; pagesText?: string; formatHint: string } = { formatHint: fmt };
+
+  // Cover (any format): split a data: URL into its mime + raw base64.
+  if (b.cover && b.cover.startsWith('data:')) {
+    const semi = b.cover.indexOf(';');
+    const comma = b.cover.indexOf(',');
+    if (semi > 5 && comma > semi) {
+      out.coverMime = b.cover.slice(5, semi);
+      out.coverImageB64 = b.cover.slice(comma + 1);
+    }
+  }
+
+  if (fmt === 'pdf') {
+    let buf: ArrayBuffer | null = null;
+    try { buf = await dbGet(b.id); } catch { buf = null; }   // null when offline — degrade to cover-only
+    if (buf) {
+      try {
+        const doc = await loadDoc(buf);
+        const texts: string[] = [];
+        const images: string[] = [];
+        const n = Math.min(doc.numPages, 5);
+        for (let i = 1; i <= n; i++) {
+          const page = await doc.getPage(i);
+          try {
+            const tc = await page.getTextContent();
+            texts.push((tc.items || []).map((it: any) => it.str || '').join(' '));
+          } catch { /* page text best-effort */ }
+          if (i <= 3) {
+            const img = await pageToJpegB64(page);
+            if (img) images.push(img);
+          }
+        }
+        const joined = texts.join('\n').trim();
+        if (joined) out.pagesText = joined.slice(0, 12000);
+        if (images.length) out.pageImagesB64 = images;
+      } catch { /* parse best-effort — keep whatever cover we have */ }
+    }
+  } else if (fmt === 'txt' || fmt === 'md') {
+    // Body is readily available on the in-memory book for these scroll formats.
+    try {
+      if (b.data && b.data.byteLength) {
+        const text = new TextDecoder('utf-8').decode(b.data).trim();
+        if (text) out.pagesText = text.slice(0, 12000);
+      }
+    } catch { /* ignore */ }
+  }
+  // epub/cbz: cover only (best-effort, already handled above).
+  return out;
+}
+
 // PDF ingest: parse locally, lift Title/Author, render a cover, upload bytes.
 async function ingestPdf(name: string, buf: ArrayBuffer): Promise<Book> {
   const doc = await loadDoc(buf);
@@ -1622,7 +1765,14 @@ const ICON = {
   play: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-14 9V3z"/></svg>',
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V6"/></svg>',
   note: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>',
+  info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>',
 };
+
+// The card affordance that opens the book-details / AI-enrichment editor. Only
+// real books carry it (notes have no bibliographic metadata).
+function detailsBtn(b: Book): string {
+  return `<button class="cardmenu" data-details="${b.id}" title="${t('details.menuItem')}" data-i18n-title="details.menuItem" aria-label="${t('details.menuItem')}" data-i18n-aria="details.menuItem">${ICON.info}</button>`;
+}
 
 // MD / TXT corner badge for note covers.
 function noteBadge(b: Book): string {
@@ -1646,6 +1796,7 @@ function coverMarkup(b: Book): string {
   if (b.cover) {
     return `<div class="cover" style="background-image:url('${b.cover}')"><span class="spine"></span>${offdot}` +
       (b.lastReadAt ? `<span class="pct">${pct(b)}%</span>` : '') +
+      detailsBtn(b) +
       `<button class="cardmenu" data-menu="${b.id}" title="${t('card.menu')}">⋮</button>` +
       `<button class="del" data-del="${b.id}" title="${t('lib.remove')}">${ICON.trash}</button></div>`;
   }
@@ -1657,6 +1808,7 @@ function coverMarkup(b: Book): string {
         <div class="ga">${escapeHtml(b.author || initials) || t('lib.unknown')}</div>
       </div>` +
     (b.lastReadAt ? `<span class="pct">${pct(b)}%</span>` : '') +
+    detailsBtn(b) +
     `<button class="cardmenu" data-menu="${b.id}" title="${t('card.menu')}">⋮</button>` +
     `<button class="del" data-del="${b.id}" title="${t('lib.remove')}">${ICON.trash}</button></div>`;
 }
@@ -1704,6 +1856,7 @@ function renderList(list: Book[]): string {
       <div class="rprog"><div class="progress"><i style="width:${pct(b)}%"></i></div><span class="progress-num">${b.lastReadAt ? pct(b) + '%' : t('lib.new')}</span></div>
       <div class="rwhen">${relTime(b.lastReadAt)}</div>
       <button class="rresume" data-open="${b.id}">${ICON.play}${b.lastReadAt ? t('lib.resume') : t('lib.read')}</button>
+      <button class="del rmenu" data-details="${b.id}" title="${t('details.menuItem')}" data-i18n-title="details.menuItem" aria-label="${t('details.menuItem')}" data-i18n-aria="details.menuItem">${ICON.info}</button>
       <button class="del rmenu" data-menu="${b.id}" title="${t('card.menu')}">⋮</button>
       <button class="del rmenu" data-del="${b.id}" title="${t('lib.remove')}">${ICON.trash}</button>
     </div>`;
@@ -1846,6 +1999,110 @@ function wireCollectionPicker(): void {
   });
 }
 
+// Book-details editor (#book-details): the app's metadata editor, doubling as the
+// AI-enrichment surface. Opened from a card's details affordance; PATCHes an
+// allowlisted field set and merges the result back into the in-memory book.
+let detailsBookId: string | null = null;
+const bdInput = (f: string) => el<HTMLInputElement | HTMLTextAreaElement>('bd-f-' + f);
+
+function openBookDetails(id: string): void {
+  const b = books.find(x => x.id === id); if (!b) return;
+  detailsBookId = id;
+  bdInput('title').value = b.title || '';
+  bdInput('subtitle').value = b.subtitle || '';
+  bdInput('authors').value = (b.authors && b.authors.length ? b.authors : (b.author ? [b.author] : [])).join(', ');
+  bdInput('series').value = b.series || '';
+  bdInput('edition').value = b.edition || '';
+  bdInput('publisher').value = b.publisher || '';
+  bdInput('year').value = b.year != null ? String(b.year) : '';
+  bdInput('isbn').value = b.isbn || '';
+  bdInput('language').value = b.language || '';
+  bdInput('description').value = b.description || '';
+  const modal = el('book-details');
+  modal.classList.remove('hidden');
+  (modal as any)._untrap = trapFocus(modal, bdInput('title'));
+}
+function closeBookDetails(): void {
+  const modal = el('book-details');
+  (modal as any)._untrap?.();
+  modal.classList.add('hidden');
+  detailsBookId = null;
+}
+async function fillBookDetailsAI(): Promise<void> {
+  if (!detailsBookId) return;
+  const b = books.find(x => x.id === detailsBookId); if (!b) return;
+  const btn = el<HTMLButtonElement>('bd-ai');
+  btn.disabled = true;
+  toast(t('details.aiLoading'));
+  try {
+    const inputs = await gatherEnrichInputs(b);
+    if (!inputs) { toast(t('details.aiError')); return; }
+    const res = await api('/enrich', { method: 'POST', body: JSON.stringify(inputs) });
+    const { fields } = await res.json();
+    const set = (f: string, val: string) => { const inp = bdInput(f); if (!inp.value.trim() && val) inp.value = val; };
+    if (fields) {
+      set('title', fields.title || '');
+      set('subtitle', fields.subtitle || '');
+      set('authors', Array.isArray(fields.authors) ? fields.authors.join(', ') : '');
+      set('series', fields.series || '');
+      set('edition', fields.edition || '');
+      set('publisher', fields.publisher || '');
+      set('year', fields.year != null ? String(fields.year) : '');
+      set('isbn', fields.isbn || '');
+      set('language', fields.language || '');
+      set('description', fields.description || '');
+    }
+    toast(t('details.aiFilled'));
+  } catch (e) {
+    if (e instanceof ApiNetworkError) toast(t('details.aiOffline'));
+    else toast(t('details.aiError'));
+  } finally {
+    btn.disabled = false;
+  }
+}
+async function saveBookDetails(): Promise<void> {
+  if (!detailsBookId) return;
+  const id = detailsBookId;
+  const authors = bdInput('authors').value.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+  const str = (f: string) => { const v = bdInput(f).value.trim(); return v ? v : undefined; };
+  const yearRaw = bdInput('year').value.trim();
+  const year = yearRaw ? parseInt(yearRaw, 10) : NaN;
+  const fields: Partial<Book> = {
+    title: bdInput('title').value.trim() || t('lib.unknown'),
+    subtitle: str('subtitle'),
+    authors: authors.length ? authors : undefined,
+    author: authors.join(', '),
+    series: str('series'),
+    edition: str('edition'),
+    publisher: str('publisher'),
+    isbn: str('isbn'),
+    language: str('language'),
+    description: str('description'),
+  };
+  if (!Number.isNaN(year)) fields.year = year;
+  try {
+    const res = await api('/books/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify(fields) });
+    if (!res.ok) throw new Error('patch failed');
+  } catch (e) {
+    if (e instanceof ApiNetworkError) { toast(t('toast.offlineRetry')); return; }
+    throw e;
+  }
+  const b = books.find(x => x.id === id);
+  if (b) Object.assign(b, fields);
+  closeBookDetails();
+  renderLibrary();
+  toast(t('details.saved'));
+}
+function wireBookDetails(): void {
+  el('bd-save').addEventListener('click', saveBookDetails);
+  el('bd-cancel').addEventListener('click', closeBookDetails);
+  el('bd-ai').addEventListener('click', fillBookDetailsAI);
+  el('book-details').addEventListener('click', (e) => { if (e.target === el('book-details')) closeBookDetails(); });
+  document.addEventListener('keydown', (e) => {
+    if ((e as KeyboardEvent).key === 'Escape' && !el('book-details').classList.contains('hidden')) closeBookDetails();
+  });
+}
+
 // delegated clicks on library
 function wireLibrary(): void {
   el('library').addEventListener('click', (e) => {
@@ -1865,6 +2122,8 @@ function wireLibrary(): void {
       renderLibrary();
       return;
     }
+    const det = t.closest('[data-details]') as HTMLElement | null;
+    if (det) { e.preventDefault(); e.stopPropagation(); openBookDetails(det.dataset.details!); return; }
     const menu = t.closest('[data-menu]') as HTMLElement | null;
     if (menu) { e.preventDefault(); e.stopPropagation(); openCollectionPicker(menu.dataset.menu!); return; }
     const del = t.closest('[data-del]') as HTMLElement | null;
@@ -4046,6 +4305,7 @@ function init(): void {
   wireLibrary();
   wireUpload();
   wireCollectionPicker();
+  wireBookDetails();
   wireLinkSheet();
   wireReader();
   wirePwa();
