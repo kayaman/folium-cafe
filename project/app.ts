@@ -320,11 +320,13 @@ const EN = {
   'coll.rename': 'Rename',
   'coll.delete': 'Delete',
   'coll.confirmDelete': 'Delete the collection “{name}”? Your books stay; only the grouping is removed.',
-  'coll.assignTitle': 'Collection',
-  'coll.noneOption': 'None',
+  'coll.assignTitle': 'Collections',
   'coll.save': 'Save',
   'coll.none': 'No collections yet — create one to group your books.',
   'coll.empty': 'Nothing in this collection yet.',
+  'coll.uncollected': 'Uncollected',
+  'coll.manage': 'Manage collections',
+  'coll.manageTitle': 'Collections',
   'card.menu': 'More actions',
   'media.link.tabLink': 'Link',
   'media.link.url': 'Media URL',
@@ -367,7 +369,7 @@ const EN = {
   'details.fIsbn': 'ISBN',
   'details.fLanguage': 'Language',
   'details.fDescription': 'Description',
-  'details.fCollection': 'Collection',
+  'details.fCollection': 'Collections',
   'details.fillAI': 'Fill with AI',
   'details.aiLoading': 'Reading the cover…',
   'details.aiFilled': 'Filled in what we could find',
@@ -500,11 +502,13 @@ const PT: Record<MsgKey, string> = {
   'coll.rename': 'Renomear',
   'coll.delete': 'Excluir',
   'coll.confirmDelete': 'Excluir a coleção “{name}”? Seus livros permanecem; só o agrupamento é removido.',
-  'coll.assignTitle': 'Coleção',
-  'coll.noneOption': 'Nenhuma',
+  'coll.assignTitle': 'Coleções',
   'coll.save': 'Salvar',
   'coll.none': 'Nenhuma coleção ainda — crie uma para agrupar seus livros.',
   'coll.empty': 'Nada nesta coleção ainda.',
+  'coll.uncollected': 'Sem coleção',
+  'coll.manage': 'Gerenciar coleções',
+  'coll.manageTitle': 'Coleções',
   'card.menu': 'Mais ações',
   'media.link.tabLink': 'Link',
   'media.link.url': 'URL da mídia',
@@ -547,7 +551,7 @@ const PT: Record<MsgKey, string> = {
   'details.fIsbn': 'ISBN',
   'details.fLanguage': 'Idioma',
   'details.fDescription': 'Descrição',
-  'details.fCollection': 'Coleção',
+  'details.fCollection': 'Coleções',
   'details.fillAI': 'Preencher com IA',
   'details.aiLoading': 'Lendo a capa…',
   'details.aiFilled': 'Preenchemos o que encontramos',
@@ -679,11 +683,13 @@ const ES: Record<MsgKey, string> = {
   'coll.rename': 'Renombrar',
   'coll.delete': 'Eliminar',
   'coll.confirmDelete': '¿Eliminar la colección “{name}”? Tus libros permanecen; solo se quita la agrupación.',
-  'coll.assignTitle': 'Colección',
-  'coll.noneOption': 'Ninguna',
+  'coll.assignTitle': 'Colecciones',
   'coll.save': 'Guardar',
   'coll.none': 'Aún no hay colecciones — crea una para agrupar tus libros.',
   'coll.empty': 'Nada en esta colección todavía.',
+  'coll.uncollected': 'Sin colección',
+  'coll.manage': 'Gestionar colecciones',
+  'coll.manageTitle': 'Colecciones',
   'card.menu': 'Más acciones',
   'media.link.tabLink': 'Enlace',
   'media.link.url': 'URL del medio',
@@ -726,7 +732,7 @@ const ES: Record<MsgKey, string> = {
   'details.fIsbn': 'ISBN',
   'details.fLanguage': 'Idioma',
   'details.fDescription': 'Descripción',
-  'details.fCollection': 'Colección',
+  'details.fCollection': 'Colecciones',
   'details.fillAI': 'Rellenar con IA',
   'details.aiLoading': 'Leyendo la portada…',
   'details.aiFilled': 'Rellenamos lo que pudimos encontrar',
@@ -1313,7 +1319,8 @@ const LS = {
   noteQueue: 'folium.noteQueue',
   lang: 'folium.lang',
   theme: 'folium.theme',
-  activeCollection: 'folium.activeCollection',
+  activeCollection: 'folium.activeCollection',       // legacy single-id (migrated → activeCollections)
+  activeCollections: 'folium.activeCollections',     // JSON array of active filter ids
   readerFontScale: 'folium.readerFontScale',
   readerLineHeight: 'folium.readerLineHeight',
 };
@@ -1371,7 +1378,36 @@ migrateLocalStorage();   // must run before viewMode/reader.width read their key
 let books: Book[] = [];
 let viewMode: ViewMode = (localStorage.getItem(LS.view) as ViewMode) || 'shelf';
 let collections: Collection[] = [];
-let activeCollection: string | null = localStorage.getItem(LS.activeCollection) || null;
+// The "Uncollected" filter pseudo-id. Real collection ids always start with
+// `coll`, so this can never collide and may live in the same Set as real ids.
+const UNCOLLECTED = '__uncollected__';
+// Multi-select collection filter. An empty set means "All". Persisted as a JSON
+// array under LS.activeCollections; a legacy single-id value is migrated in once.
+let activeCollections: Set<string> = loadActiveCollections();
+function loadActiveCollections(): Set<string> {
+  const raw = localStorage.getItem(LS.activeCollections);
+  if (raw) {
+    try { const a = JSON.parse(raw); if (Array.isArray(a)) return new Set(a.filter((x) => typeof x === 'string')); }
+    catch { /* malformed — fall through to legacy/empty */ }
+  }
+  const legacy = localStorage.getItem(LS.activeCollection);
+  localStorage.removeItem(LS.activeCollection);   // one-time migration
+  return new Set(legacy ? [legacy] : []);
+}
+function persistActiveCollections(): void {
+  if (activeCollections.size) localStorage.setItem(LS.activeCollections, JSON.stringify([...activeCollections]));
+  else localStorage.removeItem(LS.activeCollections);
+}
+// Drop any active filter whose collection no longer exists (deleted out-of-band).
+// The UNCOLLECTED sentinel is always valid. Called after every library re-pull.
+function pruneActiveCollections(): void {
+  const live = new Set(collections.map((c) => c.id));
+  let changed = false;
+  for (const id of [...activeCollections]) {
+    if (id !== UNCOLLECTED && !live.has(id)) { activeCollections.delete(id); changed = true; }
+  }
+  if (changed) persistActiveCollections();
+}
 
 // ---------- helpers ----------
 function uid(): string { return 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
@@ -1749,7 +1785,10 @@ async function ingest(file: File | { name: string; buf: ArrayBuffer; type?: stri
     // media we attach the bytes only for this upload, then make the offline copy
     // for the byte-backed formats. Audio/video are online-only — they must NEVER
     // go through cachePdf / the PDF LRU (large files would blow the quota guard).
-    if (activeCollection) book.collections = [activeCollection];
+    // Shelve into every real collection currently filtered (the UNCOLLECTED
+    // sentinel is not a real collection, so it's excluded).
+    const into = [...activeCollections].filter(id => id !== UNCOLLECTED);
+    if (into.length) book.collections = into;
     book.data = buf;
     await dbPut(book);
     if (format !== 'audio' && format !== 'video') {
@@ -1791,6 +1830,7 @@ const ICON = {
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V6"/></svg>',
   note: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>',
   info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>',
+  gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
 };
 
 // The card affordance that opens the book-details / AI-enrichment editor. Only
@@ -1805,13 +1845,17 @@ function noteBadge(b: Book): string {
   return `<span class="note-badge">${kind}</span>`;
 }
 
-// The collection name to badge on a card, or '' when the book is uncollected or
-// in a collection we don't know about. Notes are never collected.
+// Badge a card with its collection(s): the first name, plus a "+N" overflow pill
+// when the book is in more than one. '' when uncollected or only in collections
+// we don't know about. Notes are never collected.
 function collectionBadge(b: Book): string {
-  const cid = bookCollection(b);
-  const c = cid ? collections.find(x => x.id === cid) : null;
-  const name = c ? c.name : '';
-  return name ? `<span class="coll-badge" title="${escapeHtml(name)}">${escapeHtml(name)}</span>` : '';
+  const cs = bookCollections(b);
+  if (!cs.length) return '';
+  const allNames = cs.map(c => c.name).join(', ');
+  // The overflow "+N" rides inside the single pill so it can't overlap on covers
+  // (where the badge is absolutely positioned).
+  const more = cs.length > 1 ? `<span class="coll-badge-more">+${cs.length - 1}</span>` : '';
+  return `<span class="coll-badge" title="${escapeHtml(allNames)}">${escapeHtml(cs[0].name)}${more}</span>`;
 }
 
 function coverMarkup(b: Book): string {
@@ -1942,32 +1986,57 @@ function renderLibrary(): void {
     if (en) en.addEventListener('click', () => createNote());
     return;
   }
-  // newest-first base order, then narrow to the active collection (if any)
+  // newest-first base order, then narrow to the active collection filter (if any)
   let list = books.slice().sort((a, b) => (b.lastReadAt || b.addedAt) - (a.lastReadAt || a.addedAt));
-  if (activeCollection) list = list.filter(b => (b.collections || []).includes(activeCollection!));
+  if (activeCollections.size) list = list.filter(matchesCollectionFilter);
   let view: string;
-  if (!list.length && activeCollection) view = `<div class="empty"><p>${t('coll.empty')}</p></div>`;
+  if (!list.length && activeCollections.size) view = `<div class="empty"><p>${t('coll.empty')}</p></div>`;
   else if (viewMode === 'shelf') view = renderShelf(list);
   else if (viewMode === 'grid') view = renderGrid(list);
   else view = renderList(list);
   body.innerHTML = renderChips() + view;
 }
 
-// The collection filter bar: All · <each collection> · (+) · edit tools for the
-// active chip. Rendered into #lib-body each renderLibrary() so it reflects state.
+// OR semantics across the active filter: a book matches if "Uncollected" is
+// selected and it has no collections, or any of its collections is selected.
+function matchesCollectionFilter(b: Book): boolean {
+  const cols = b.collections || [];
+  if (activeCollections.has(UNCOLLECTED) && cols.length === 0) return true;
+  return cols.some(c => activeCollections.has(c));
+}
+
+// Per-collection book counts (a book in N collections counts toward each), plus
+// the tally of uncollected items. Reused by the chip bar and the manage modal.
+function collectionCounts(): { map: Map<string, number>; uncollected: number } {
+  const map = new Map<string, number>();
+  let uncollected = 0;
+  for (const b of books) {
+    const cols = b.collections || [];
+    if (!cols.length) { uncollected++; continue; }
+    for (const c of cols) map.set(c, (map.get(c) || 0) + 1);
+  }
+  return { map, uncollected };
+}
+
+// The collection filter bar: All · <each collection (count)> · Uncollected · (+)
+// · ⚙ manage. Chips multi-select (OR). Rendered into #lib-body each
+// renderLibrary() so it reflects state.
 function renderChips(): string {
-  const chip = (id: string | null, label: string) =>
-    `<button class="chip${activeCollection === id ? ' active' : ''}" data-chip="${id ?? ''}">${escapeHtml(label)}</button>`;
-  const editTools = activeCollection
-    ? `<button class="chip-edit" data-chip-rename="${activeCollection}" title="${t('coll.rename')}">${ICON.note}</button>` +
-      `<button class="chip-edit" data-chip-del="${activeCollection}" title="${t('coll.delete')}">${ICON.trash}</button>`
+  const { map, uncollected } = collectionCounts();
+  const chip = (active: boolean, attr: string, label: string, n?: number) =>
+    `<button class="chip${active ? ' active' : ''}" ${attr}>${escapeHtml(label)}` +
+    (n != null ? `<span class="chip-count">${n}</span>` : '') + `</button>`;
+  const all = chip(activeCollections.size === 0, 'data-chip-all', t('coll.all'));
+  const colls = collections.map(c =>
+    chip(activeCollections.has(c.id), `data-chip="${c.id}"`, c.name || t('coll.new'), map.get(c.id) || 0)).join('');
+  const uncol = uncollected
+    ? chip(activeCollections.has(UNCOLLECTED), `data-chip="${UNCOLLECTED}"`, t('coll.uncollected'), uncollected)
     : '';
-  return `<div class="chipbar">` +
-    chip(null, t('coll.all')) +
-    collections.map(c => chip(c.id, c.name || t('coll.new'))).join('') +
-    `<button class="chip chip-add" data-chip-new title="${t('coll.new')}">+</button>` +
-    editTools +
-    `</div>`;
+  const add = `<button class="chip chip-add" data-chip-new title="${t('coll.new')}" aria-label="${t('coll.new')}">+</button>`;
+  const manage = collections.length
+    ? `<button class="chip-edit chip-manage" data-coll-manage title="${t('coll.manage')}" aria-label="${t('coll.manage')}">${ICON.gear}</button>`
+    : '';
+  return `<div class="chipbar">` + all + colls + uncol + add + manage + `</div>`;
 }
 
 async function createCollectionFlow(): Promise<void> {
@@ -1975,7 +2044,7 @@ async function createCollectionFlow(): Promise<void> {
   if (!name) return;
   try {
     const c = await apiCreateCollection(name);
-    collections.push(c); activeCollection = c.id; localStorage.setItem(LS.activeCollection, c.id);
+    collections.push(c); activeCollections.add(c.id); persistActiveCollections();
     renderLibrary();
   } catch (e) { if (e instanceof ApiNetworkError) toast(t('toast.offlineRetry')); else throw e; }
 }
@@ -1983,7 +2052,7 @@ async function renameCollectionFlow(id: string): Promise<void> {
   const cur = collections.find(c => c.id === id); if (!cur) return;
   const name = (window.prompt(t('coll.renamePrompt'), cur.name) || '').trim();
   if (!name || name === cur.name) return;
-  try { await apiRenameCollection(id, name); cur.name = name; renderLibrary(); }
+  try { await apiRenameCollection(id, name); cur.name = name; renderLibrary(); refreshCollectionManager(); }
   catch (e) { if (e instanceof ApiNetworkError) toast(t('toast.offlineRetry')); else throw e; }
 }
 async function deleteCollectionFlow(id: string): Promise<void> {
@@ -1993,27 +2062,39 @@ async function deleteCollectionFlow(id: string): Promise<void> {
   catch (e) { if (e instanceof ApiNetworkError) { toast(t('toast.offlineRetry')); return; } throw e; }
   collections = collections.filter(c => c.id !== id);
   for (const b of books) if (b.collections) b.collections = b.collections.filter(x => x !== id);
-  if (activeCollection === id) { activeCollection = null; localStorage.removeItem(LS.activeCollection); }
+  if (activeCollections.delete(id)) persistActiveCollections();
   renderLibrary();
+  refreshCollectionManager();
 }
 
-// A book belongs to AT MOST ONE collection — the model stays string[] but we
-// constrain it to 0 or 1 element. These helpers read the single membership and
-// build the shared <select> options used by both assignment surfaces.
-function bookCollection(b: Book): string | null { return (b.collections && b.collections[0]) || null; }
-function collectionOptions(selectedId: string | null): string {
-  return `<option value="">${t('coll.noneOption')}</option>` +
-    collections.map(c => `<option value="${c.id}"${c.id === selectedId ? ' selected' : ''}>${escapeHtml(c.name || t('coll.new'))}</option>`).join('');
+// A book may belong to MANY collections. These helpers resolve the membership to
+// live Collection objects and build the shared multi-check list used by both
+// assignment surfaces (the per-book picker and the book-details editor).
+function bookCollections(b: Book): Collection[] {
+  return (b.collections || [])
+    .map(id => collections.find(c => c.id === id))
+    .filter(Boolean) as Collection[];
+}
+function collectionChecklist(selectedIds: string[]): string {
+  const sel = new Set(selectedIds);
+  return collections.map(c =>
+    `<label class="coll-check"><input type="checkbox" value="${c.id}"${sel.has(c.id) ? ' checked' : ''}>${escapeHtml(c.name || t('coll.new'))}</label>`
+  ).join('');
+}
+// Read the checked collection ids out of a checklist container (#coll-picker-list
+// or #bd-f-collection).
+function checkedCollectionIds(containerId: string): string[] {
+  return Array.from(el(containerId).querySelectorAll<HTMLInputElement>('input[type="checkbox"]:checked')).map(i => i.value);
 }
 
-// Per-book collection assignment: a single-select modal (#coll-picker) that PUTs
-// the book's membership (0 or 1 collection). Opened from a card's ⋮ button.
+// Per-book collection assignment: a multi-check modal (#coll-picker) that PUTs
+// the book's full membership (any number of collections). Opened from a card's ⋮.
 let pickerBookId: string | null = null;
 function openCollectionPicker(bookId: string): void {
   const b = books.find(x => x.id === bookId); if (!b) return;
   pickerBookId = bookId;
   el('coll-picker-list').innerHTML = collections.length
-    ? '<select id="coll-picker-select" class="coll-select">' + collectionOptions(bookCollection(b)) + '</select>'
+    ? collectionChecklist(b.collections || [])
     : `<p class="coll-none">${t('coll.none')}</p>`;
   const picker = el('coll-picker');
   picker.classList.remove('hidden');
@@ -2027,8 +2108,7 @@ function closeCollectionPicker(): void {
 }
 async function saveCollectionPicker(): Promise<void> {
   if (!pickerBookId) return;
-  const sel = document.getElementById('coll-picker-select') as HTMLSelectElement | null;
-  const ids = sel && sel.value ? [sel.value] : [];
+  const ids = checkedCollectionIds('coll-picker-list');
   try { await apiSetBookCollections(pickerBookId, ids); }
   catch (e) { if (e instanceof ApiNetworkError) { toast(t('toast.offlineRetry')); return; } throw e; }
   const b = books.find(x => x.id === pickerBookId); if (b) b.collections = ids;
@@ -2041,6 +2121,52 @@ function wireCollectionPicker(): void {
   el('coll-picker').addEventListener('click', (e) => { if (e.target === el('coll-picker')) closeCollectionPicker(); });
   document.addEventListener('keydown', (e) => {
     if ((e as KeyboardEvent).key === 'Escape' && !el('coll-picker').classList.contains('hidden')) closeCollectionPicker();
+  });
+}
+
+// Manage-collections modal (#coll-manage): the home for rename/delete now that
+// the chip bar is multi-select. One row per collection (name + count + edit
+// tools). Rename/delete reuse the existing flows, which call back into
+// refreshCollectionManager() so the list stays current while the modal is open.
+function renderCollectionManagerRows(): string {
+  if (!collections.length) return `<p class="coll-none">${t('coll.none')}</p>`;
+  const { map } = collectionCounts();
+  return collections.map(c => `<div class="coll-row">
+      <span class="coll-row-name">${escapeHtml(c.name || t('coll.new'))}</span>
+      <span class="chip-count">${map.get(c.id) || 0}</span>
+      <button class="chip-edit" data-chip-rename="${c.id}" title="${t('coll.rename')}" aria-label="${t('coll.rename')}">${ICON.note}</button>
+      <button class="chip-edit" data-chip-del="${c.id}" title="${t('coll.delete')}" aria-label="${t('coll.delete')}">${ICON.trash}</button>
+    </div>`).join('');
+}
+function refreshCollectionManager(): void {
+  if (el('coll-manage').classList.contains('hidden')) return;
+  el('coll-manage-list').innerHTML = renderCollectionManagerRows();
+}
+function openCollectionManager(): void {
+  el('coll-manage-list').innerHTML = renderCollectionManagerRows();
+  const m = el('coll-manage');
+  m.classList.remove('hidden');
+  (m as any)._untrap = trapFocus(m, el('coll-manage-done'));
+}
+function closeCollectionManager(): void {
+  const m = el('coll-manage');
+  (m as any)._untrap?.();
+  m.classList.add('hidden');
+}
+function wireCollectionManager(): void {
+  el('coll-manage-done').addEventListener('click', closeCollectionManager);
+  el('coll-manage').addEventListener('click', (e) => { if (e.target === el('coll-manage')) closeCollectionManager(); });
+  el('coll-manage-list').addEventListener('click', (e) => {
+    const tgt = e.target as HTMLElement;
+    const ren = tgt.closest('[data-chip-rename]') as HTMLElement | null;
+    if (ren) { e.preventDefault(); renameCollectionFlow(ren.dataset.chipRename!); return; }
+    const del = tgt.closest('[data-chip-del]') as HTMLElement | null;
+    if (del) { e.preventDefault(); deleteCollectionFlow(del.dataset.chipDel!); return; }
+  });
+  // Escape is bound to the overlay (not document) so a confirm dialog opened over
+  // this modal — a sibling overlay — doesn't also close the manager underneath it.
+  el('coll-manage').addEventListener('keydown', (e) => {
+    if ((e as KeyboardEvent).key === 'Escape') { e.preventDefault(); closeCollectionManager(); }
   });
 }
 
@@ -2063,7 +2189,9 @@ function openBookDetails(id: string): void {
   bdInput('isbn').value = b.isbn || '';
   bdInput('language').value = b.language || '';
   bdInput('description').value = b.description || '';
-  el('bd-f-collection').innerHTML = collectionOptions(bookCollection(b));
+  el('bd-f-collection').innerHTML = collections.length
+    ? collectionChecklist(b.collections || [])
+    : `<p class="coll-none">${t('coll.none')}</p>`;
   const modal = el('book-details');
   modal.classList.remove('hidden');
   (modal as any)._untrap = trapFocus(modal, bdInput('title'));
@@ -2113,8 +2241,7 @@ async function saveBookDetails(): Promise<void> {
   const str = (f: string) => { const v = bdInput(f).value.trim(); return v ? v : undefined; };
   const yearRaw = bdInput('year').value.trim();
   const year = yearRaw ? parseInt(yearRaw, 10) : NaN;
-  const csel = el('bd-f-collection') as HTMLSelectElement;
-  const cids = csel.value ? [csel.value] : [];
+  const cids = checkedCollectionIds('bd-f-collection');
   const fields: Partial<Book> = {
     title: bdInput('title').value.trim() || t('lib.unknown'),
     subtitle: str('subtitle'),
@@ -2158,16 +2285,16 @@ function wireLibrary(): void {
     const t = e.target as HTMLElement;
     const chipNew = t.closest('[data-chip-new]');
     if (chipNew) { e.preventDefault(); createCollectionFlow(); return; }
-    const chipRen = t.closest('[data-chip-rename]') as HTMLElement | null;
-    if (chipRen) { e.preventDefault(); renameCollectionFlow(chipRen.dataset.chipRename!); return; }
-    const chipDel = t.closest('[data-chip-del]') as HTMLElement | null;
-    if (chipDel) { e.preventDefault(); deleteCollectionFlow(chipDel.dataset.chipDel!); return; }
+    const chipManage = t.closest('[data-coll-manage]');
+    if (chipManage) { e.preventDefault(); openCollectionManager(); return; }
+    const chipAll = t.closest('[data-chip-all]');
+    if (chipAll) { e.preventDefault(); activeCollections.clear(); persistActiveCollections(); renderLibrary(); return; }
     const chipBtn = t.closest('[data-chip]') as HTMLElement | null;
     if (chipBtn) {
       e.preventDefault();
-      activeCollection = chipBtn.dataset.chip || null;
-      if (activeCollection) localStorage.setItem(LS.activeCollection, activeCollection);
-      else localStorage.removeItem(LS.activeCollection);
+      const id = chipBtn.dataset.chip!;
+      if (activeCollections.has(id)) activeCollections.delete(id); else activeCollections.add(id);
+      persistActiveCollections();
       renderLibrary();
       return;
     }
@@ -4121,10 +4248,7 @@ async function boot(): Promise<void> {
     books = [];
     booted = false;       // first-run offline: a later resync (online/foreground) retries
   }
-  // Drop a stale active filter if its collection no longer exists.
-  if (activeCollection && !collections.some(c => c.id === activeCollection)) {
-    activeCollection = null; localStorage.removeItem(LS.activeCollection);
-  }
+  pruneActiveCollections();   // drop active filters whose collection no longer exists
   renderLibrary();
   await handleLaunchParams();
   await drainLaunchFiles();   // shelve files opened with Folium before sign-in
@@ -4146,9 +4270,7 @@ async function resyncLibrary(): Promise<void> {
   if (!booted) { await boot(); return; }                  // the initial load never succeeded
   try {
     books = (await dbAll()) as unknown as Book[];
-    if (activeCollection && !collections.some(c => c.id === activeCollection)) {
-      activeCollection = null; localStorage.removeItem(LS.activeCollection);
-    }
+    pruneActiveCollections();
     renderLibrary();
   } catch { /* offline or logged out — dbAll()/api() already drove the UI */ }
 }
@@ -4401,6 +4523,7 @@ function init(): void {
   wireLibrary();
   wireUpload();
   wireCollectionPicker();
+  wireCollectionManager();
   wireBookDetails();
   wireLinkSheet();
   wireReader();
