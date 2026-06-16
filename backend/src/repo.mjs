@@ -178,9 +178,13 @@ export async function listClippings(bookId) {
 }
 
 export async function putClipping(bookId, clip) {
+  // Spread the clip FIRST, then set the authoritative keys — `clip` carries its
+  // own `id`, and if it were spread last it would clobber the composite range key
+  // with the bare clip id (no '#hl#'), which then leaks into listBooks as a
+  // phantom, title-less "book". listClippings reconstructs clip.id via parseClipId.
   await ddb.send(new PutCommand({
     TableName: TABLE,
-    Item: { pk: PK, id: clipItemId(bookId, clip.id), bookId, ...clip },
+    Item: { ...clip, pk: PK, bookId, id: clipItemId(bookId, clip.id) },
   }));
 }
 
