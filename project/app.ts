@@ -357,6 +357,8 @@ const EN = {
   'theme.sepia': 'Sepia',
   'theme.dark': 'Dark',
   'theme.hc': 'High contrast',
+  'theme.toDark': 'Switch to dark',
+  'theme.toLight': 'Switch to light',
   'details.title': 'Book details',
   'details.fTitle': 'Title',
   'details.fSubtitle': 'Subtitle',
@@ -539,6 +541,8 @@ const PT: Record<MsgKey, string> = {
   'theme.sepia': 'Sépia',
   'theme.dark': 'Escuro',
   'theme.hc': 'Alto contraste',
+  'theme.toDark': 'Mudar para escuro',
+  'theme.toLight': 'Mudar para claro',
   'details.title': 'Detalhes do livro',
   'details.fTitle': 'Título',
   'details.fSubtitle': 'Subtítulo',
@@ -720,6 +724,8 @@ const ES: Record<MsgKey, string> = {
   'theme.sepia': 'Sepia',
   'theme.dark': 'Oscuro',
   'theme.hc': 'Alto contraste',
+  'theme.toDark': 'Cambiar a oscuro',
+  'theme.toLight': 'Cambiar a claro',
   'details.title': 'Detalles del libro',
   'details.fTitle': 'Título',
   'details.fSubtitle': 'Subtítulo',
@@ -1359,6 +1365,7 @@ function resolveTheme(p: ThemePref): 'paper' | 'sepia' | 'dark' | 'hc' {
   return p;
 }
 const THEME_COLOR: Record<string, string> = { paper: '#5e261d', sepia: '#7c3327', dark: '#161109', hc: '#000000' };
+const isDarkTheme = (resolved: string): boolean => resolved === 'dark' || resolved === 'hc';
 function applyTheme(): void {
   const resolved = resolveTheme(themePref);
   document.documentElement.dataset.theme = resolved;
@@ -1366,6 +1373,21 @@ function applyTheme(): void {
   if (m) m.setAttribute('content', THEME_COLOR[resolved]);
   const a = reader.adapter as any;
   if (a && typeof a.applyTheme === 'function') a.applyTheme(resolved);
+  // Reflect the current light/dark state on the masthead toggle.
+  const btn = document.getElementById('btn-theme');
+  if (btn) {
+    const dark = isDarkTheme(resolved);
+    btn.innerHTML = dark ? ICON.sun : ICON.moon;
+    const label = dark ? t('theme.toLight') : t('theme.toDark');
+    btn.setAttribute('aria-label', label);
+    btn.setAttribute('title', label);
+  }
+}
+// Quick light/dark toggle (the Settings dropdown keeps system/sepia/high-contrast).
+function wireThemeToggle(): void {
+  el('btn-theme').addEventListener('click', () => {
+    setTheme(isDarkTheme(resolveTheme(themePref)) ? 'paper' : 'dark');
+  });
 }
 function setTheme(p: ThemePref): void {
   themePref = p;
@@ -1834,6 +1856,8 @@ const ICON = {
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V6"/></svg>',
   note: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>',
   info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>',
+  moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
+  sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
   gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
 };
 
@@ -4524,6 +4548,7 @@ function init(): void {
     void showWaitingCue();
   };
   wireViewSwitch();
+  wireThemeToggle();
   wireLibrary();
   wireUpload();
   wireCollectionPicker();
