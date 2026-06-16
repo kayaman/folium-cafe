@@ -74,6 +74,8 @@ jobs:
           aws s3 cp project/manifest.webmanifest "$B/manifest.webmanifest" --cache-control "max-age=300" --content-type "application/manifest+json"
           aws s3 cp project/favicon.svg    "$B/favicon.svg"    --cache-control "max-age=86400" --content-type "image/svg+xml"
           aws s3 cp project/favicon-32.png "$B/favicon-32.png" --cache-control "max-age=86400"
+          aws s3 cp project/og-image.png "$B/og-image.png" --cache-control "max-age=86400" --content-type "image/png"
+          aws s3 cp project/robots.txt "$B/robots.txt" --cache-control "max-age=300" --content-type "text/plain"
           aws s3 cp project/icons/  "$B/icons/"  --recursive --cache-control "max-age=86400"
           aws s3 cp project/vendor/ "$B/vendor/" --recursive --cache-control "max-age=86400" --content-type "application/javascript"
 
@@ -91,4 +93,4 @@ jobs:
           aws cloudfront create-invalidation \
             --distribution-id "${{ steps.tf.outputs.distribution_id }}" \
             --paths "/" "/index.html" "/app.js" "/styles.css" "/sw.js" "/manifest.webmanifest" \
-              "/favicon.svg" "/favicon-32.png" "/icons/*" "/vendor/*"
+              "/favicon.svg" "/favicon-32.png" "/icons/*" "/vendor/*" "/og-image.png" "/robots.txt"

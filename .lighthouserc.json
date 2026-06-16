@@ -1,0 +1,11 @@
+{
+	"ci": {
+		"collect": {
+			"settings": {
+				"preset": "desktop",
+				"throttlingMethod": "provided",
+				"chromeFlags": "--disable-extensions"
+			}
+		}
+	}
+}

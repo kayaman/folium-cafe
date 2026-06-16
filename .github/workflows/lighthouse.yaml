@@ -1,0 +1,129 @@
+name: Lighthouse
+
+on:
+  workflow_run:
+    workflows: [Deploy]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  lighthouse:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Wait for CloudFront propagation
+        run: sleep 30
+
+      - name: Run Lighthouse
+        id: lhci
+        uses: treosh/lighthouse-ci-action@v12
+        with:
+          urls: https://folium.cafe/?lighthouse=1
+          uploadArtifacts: true
+          temporaryPublicStorage: false
+          runs: 1
+          configPath: .lighthouserc.json
+
+      - name: Assert scores and save report
+        run: |
+          RESULTS_DIR="${{ steps.lhci.outputs.resultsPath }}"
+          echo "Looking for reports in: $RESULTS_DIR"
+          ls -la "$RESULTS_DIR" || { echo "::error::Results dir not found"; exit 1; }
+
+          REPORT=$(ls "$RESULTS_DIR"/*.report.json 2>/dev/null | head -1)
+          if [ -z "$REPORT" ]; then
+            echo "::error::No Lighthouse report JSON found"
+            exit 1
+          fi
+          echo "Found report: $REPORT"
+
+          TIMESTAMP=$(date -u +"%Y%m%dT%H%M%S")
+          mkdir -p etc/lighthouse
+          DEST="etc/lighthouse/folium.cafe-${TIMESTAMP}.json"
+          cp "$REPORT" "$DEST"
+
+          python3 - "$DEST" <<'PY'
+          import json, sys
+
+          report_path = sys.argv[1]
+          report = json.load(open(report_path))
+          cats = report.get("categories", {})
+          audits = report.get("audits", {})
+
+          # Patch: recompute best-practices score ignoring chrome-extension:// console
+          # errors. Policy-installed runner extensions survive --disable-extensions and
+          # are outside the site's control (AGENTS.md: chromeFlags --disable-extensions).
+          console_audit = audits.get("errors-in-console", {})
+          items = console_audit.get("details", {}).get("items", [])
+          ext_only_errors = items and all(
+              (it.get("sourceLocation", {}).get("url", "") or "").startswith("chrome-extension://")
+              for it in items
+          )
+          if ext_only_errors:
+              n = len(items)
+              print(f"Note: ignoring {n} chrome-extension:// console error(s) — not caused by this site")
+              # Recompute best-practices score treating errors-in-console as passing
+              bp_cat = cats.get("best-practices", {})
+              audit_refs = bp_cat.get("auditRefs", [])
+              total_weight = sum(ref.get("weight", 0) for ref in audit_refs)
+              weighted_sum = 0.0
+              for ref in audit_refs:
+                  aid = ref.get("id", "")
+                  w = ref.get("weight", 0)
+                  if aid == "errors-in-console":
+                      weighted_sum += w * 1.0  # treat as passing
+                  else:
+                      s = audits.get(aid, {}).get("score") or 0
+                      weighted_sum += w * s
+              new_score = weighted_sum / total_weight if total_weight else bp_cat.get("score", 0)
+              bp_cat["score"] = new_score
+
+          thresholds = {
+              "performance":    0.90,  # desktop score varies 92-99; 90 catches regressions
+              "accessibility":  1.00,
+              "best-practices": 1.00,
+              "seo":            1.00,
+          }
+
+          print("--- Lighthouse Scores ---")
+          failures = []
+          for key, threshold in thresholds.items():
+              cat = cats.get(key, {})
+              score = cat.get("score")
+              pct = round(score * 100) if score is not None else 0
+              ok = score is not None and score >= threshold
+              mark = "✓" if ok else "✗"
+              print(f"  {mark} {key}: {pct}  (min: {round(threshold * 100)})")
+              if not ok:
+                  failures.append(f"{key}: got {pct}, need >= {round(threshold * 100)}")
+
+          if failures:
+              print("\n::error::Lighthouse threshold failures:")
+              for f in failures:
+                  print(f"  - {f}")
+              sys.exit(1)
+
+          print("\nAll thresholds passed!")
+          PY
+
+      - name: Commit report
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin lighthouse-reports 2>/dev/null || true
+          if git show-ref --verify --quiet refs/remotes/origin/lighthouse-reports; then
+            git checkout -B lighthouse-reports origin/lighthouse-reports
+          else
+            git checkout -B lighthouse-reports
+          fi
+          git add etc/lighthouse/
+          git diff --cached --quiet && echo "No new report to commit" && exit 0
+          git commit -m "chore: add Lighthouse report $(date -u +%Y-%m-%d)"
+          git push origin lighthouse-reports

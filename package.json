@@ -9,7 +9,8 @@
     "watch": "esbuild project/app.ts --bundle --outfile=project/app.js --target=es2020 --watch",
     "dev": "esbuild project/app.ts --bundle --outfile=project/app.js --target=es2020 --watch",
     "test": "node --test project/test/*.test.mjs",
-    "icons": "node scripts/icons.mjs"
+    "icons": "node scripts/icons.mjs",
+    "og-image": "node scripts/og-image.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.21.0",
