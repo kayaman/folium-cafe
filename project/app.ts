@@ -1524,8 +1524,12 @@ function setBookZoom(id: string, z: number): void {
   localStorage.setItem(LS.zoom, JSON.stringify(m));
   localStorage.setItem(LS.lastZoom, String(z));
 }
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as any)[c]);
+// Coerce to string before escaping: a book stored without a `title`/`author`
+// attribute comes back undefined, and `undefined.replace` would throw — which
+// previously killed the WHOLE grid render (the count + continue card survived,
+// the shelf went blank) because the throw is swallowed up in boot/resync.
+function escapeHtml(s: unknown): string {
+  return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as any)[c]);
 }
 
 // ---------- cover & ingest ----------
