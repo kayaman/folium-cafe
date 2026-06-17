@@ -952,9 +952,9 @@ function confirmDialog(message: string): Promise<boolean> {
 }
 
 // ---------- analytics ----------
-declare function gtag(...args: unknown[]): void;
 function track(event: string, params?: Record<string, unknown>) {
-  if (typeof gtag === 'function') gtag('event', event, params);
+  const g = (globalThis as { gtag?: (...args: unknown[]) => void }).gtag;
+  if (typeof g === 'function') g('event', event, params);
 }
 
 // ---------- API client ----------
