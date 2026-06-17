@@ -11,6 +11,9 @@ declare global {
   interface LaunchParams { files?: FileSystemFileHandle[] }
   interface LaunchQueue { setConsumer(cb: (p: LaunchParams) => void): void }
   interface Window { launchQueue?: LaunchQueue }
+  // GA4 gtag.js, loaded from index.html — ambient so the analytics helper inside
+  // the app IIFE can reference it (`declare` is illegal inside a function body).
+  function gtag(...args: unknown[]): void;
 }
 
 (() => {
@@ -400,6 +403,23 @@ const EN = {
   'details.aiOffline': 'You’re offline — try again when online',
   'details.saved': 'Details saved',
   'details.menuItem': 'Details',
+  'menu.about': 'About',
+  'about.tagline': 'so you remember the page you were on',
+  'about.lead': 'A quiet, private reading room for everything you mean to read. Shelve your books, open them on any device, and always land back on the exact page — and line — you left.',
+  'about.featuresTitle': 'What’s inside',
+  'about.f1.h': 'Pick up where you left off',
+  'about.f1.b': 'Every page turn is saved to your shelf. Switch devices and resume mid-sentence.',
+  'about.f2.h': 'More than PDFs',
+  'about.f2.b': 'PDFs, EPUBs, CBZ comics, plain text and Markdown, even audiobooks and video — one calm library for all of it, plus notes you write in place.',
+  'about.f3.h': 'Yours alone',
+  'about.f3.b': 'A single private library behind your sign-in. No feeds, no ads, no one else browsing your shelves.',
+  'about.f4.h': 'Works offline',
+  'about.f4.b': 'Install it like a native app. Your current books travel with you — on a plane, underground, anywhere.',
+  'about.f5.h': 'Highlight and share',
+  'about.f5.b': 'Mark a passage or snip a handsome clipping, then share it in a tap.',
+  'about.f6.h': 'Made for comfortable reading',
+  'about.f6.b': 'Paper, sepia, dark and high-contrast themes, adjustable type, and a distraction-free focus mode.',
+  'about.done': 'Close',
 } as const;
 type MsgKey = keyof typeof EN;
 
@@ -605,6 +625,23 @@ const PT: Record<MsgKey, string> = {
   'details.aiOffline': 'Você está offline — tente novamente quando estiver online',
   'details.saved': 'Detalhes salvos',
   'details.menuItem': 'Detalhes',
+  'menu.about': 'Sobre',
+  'about.tagline': 'para você lembrar da página em que parou',
+  'about.lead': 'Uma sala de leitura tranquila e particular para tudo o que você pretende ler. Coloque seus livros na estante, abra-os em qualquer dispositivo e volte sempre exatamente à página — e à linha — em que parou.',
+  'about.featuresTitle': 'O que tem dentro',
+  'about.f1.h': 'Continue de onde parou',
+  'about.f1.b': 'Cada virada de página é salva na sua estante. Troque de dispositivo e retome no meio da frase.',
+  'about.f2.h': 'Muito além de PDFs',
+  'about.f2.b': 'PDFs, EPUBs, quadrinhos CBZ, texto puro e Markdown, e até audiolivros e vídeo — uma biblioteca tranquila para tudo isso, além de notas que você escreve ali mesmo.',
+  'about.f3.h': 'Só sua',
+  'about.f3.b': 'Uma única biblioteca particular protegida pelo seu login. Sem feeds, sem anúncios, ninguém mais folheando suas estantes.',
+  'about.f4.h': 'Funciona offline',
+  'about.f4.b': 'Instale como um aplicativo nativo. Seus livros atuais viajam com você — no avião, no metrô, em qualquer lugar.',
+  'about.f5.h': 'Destaque e compartilhe',
+  'about.f5.b': 'Marque um trecho ou recorte um clipe elegante e compartilhe com um toque.',
+  'about.f6.h': 'Feito para uma leitura confortável',
+  'about.f6.b': 'Temas papel, sépia, escuro e alto contraste, tipografia ajustável e um modo de foco sem distrações.',
+  'about.done': 'Fechar',
 };
 
 const ES: Record<MsgKey, string> = {
@@ -809,6 +846,23 @@ const ES: Record<MsgKey, string> = {
   'details.aiOffline': 'Estás sin conexión — inténtalo de nuevo cuando estés en línea',
   'details.saved': 'Detalles guardados',
   'details.menuItem': 'Detalles',
+  'menu.about': 'Acerca de',
+  'about.tagline': 'para que recuerdes la página en la que estabas',
+  'about.lead': 'Una sala de lectura tranquila y privada para todo lo que quieres leer. Coloca tus libros en la estantería, ábrelos en cualquier dispositivo y vuelve siempre a la página — y a la línea — exacta en la que lo dejaste.',
+  'about.featuresTitle': 'Qué incluye',
+  'about.f1.h': 'Retoma donde lo dejaste',
+  'about.f1.b': 'Cada cambio de página se guarda en tu estantería. Cambia de dispositivo y continúa a mitad de la frase.',
+  'about.f2.h': 'Más que PDFs',
+  'about.f2.b': 'PDFs, EPUBs, cómics CBZ, texto plano y Markdown, e incluso audiolibros y vídeo — una biblioteca serena para todo ello, además de notas que escribes en el momento.',
+  'about.f3.h': 'Solo tuya',
+  'about.f3.b': 'Una única biblioteca privada tras tu inicio de sesión. Sin feeds, sin anuncios, sin nadie más hojeando tus estanterías.',
+  'about.f4.h': 'Funciona sin conexión',
+  'about.f4.b': 'Instálala como una app nativa. Tus libros actuales viajan contigo — en un avión, en el metro, donde sea.',
+  'about.f5.h': 'Subraya y comparte',
+  'about.f5.b': 'Marca un pasaje o recorta un bonito fragmento y compártelo con un toque.',
+  'about.f6.h': 'Pensada para una lectura cómoda',
+  'about.f6.b': 'Temas papel, sepia, oscuro y de alto contraste, tipografía ajustable y un modo de enfoque sin distracciones.',
+  'about.done': 'Cerrar',
 };
 
 const DICTS: Record<Locale, Record<MsgKey, string>> = { en: EN, 'pt-BR': PT, es: ES };
@@ -949,7 +1003,6 @@ function confirmDialog(message: string): Promise<boolean> {
 }
 
 // ---------- analytics ----------
-declare function gtag(...args: unknown[]): void;
 function track(event: string, params?: Record<string, unknown>) {
   if (typeof gtag === 'function') gtag('event', event, params);
 }
@@ -4750,6 +4803,22 @@ function wireSettings(): void {
   });
 }
 
+function wireAbout(): void {
+  const modal = el('about');
+  const closeBtn = el('about-done');
+  const closeAbout = () => { (modal as any)._untrap?.(); modal.classList.add('hidden'); };
+  el('btn-about').addEventListener('click', () => {
+    modal.classList.remove('hidden');
+    el('dropdown').classList.add('hidden');
+    (modal as any)._untrap = trapFocus(modal, closeBtn);
+  });
+  closeBtn.addEventListener('click', closeAbout);
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeAbout(); });
+  document.addEventListener('keydown', (e) => {
+    if ((e as KeyboardEvent).key === 'Escape' && !modal.classList.contains('hidden')) closeAbout();
+  });
+}
+
 function init(): void {
   locale = resolveLocale();
   pluralRules = new Intl.PluralRules(locale);
@@ -4759,6 +4828,7 @@ function init(): void {
   setupMarked();
   wireAuth();
   wireSettings();
+  wireAbout();
   wireNotes();
   _onUnauthorized = () => {
     localStorage.removeItem(LS.user);

@@ -163,6 +163,7 @@
           <div class="who"><div class="n" id="user-name">Reader</div><div class="e" id="user-email" data-i18n="menu.atCafe">at the café</div></div>
           <button id="btn-settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01A1.7 1.7 0 0 0 10 4.09V4a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01A1.7 1.7 0 0 0 20.91 11H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z"/></svg><span data-i18n="menu.settings">Settings</span></button>
           <button id="btn-install" class="hidden"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg><span data-i18n="menu.install">Install Folium Café</span></button>
+          <button id="btn-about"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg><span data-i18n="menu.about">About</span></button>
           <button id="btn-logout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg><span data-i18n="menu.signOut">Sign out</span></button>
         </div>
       </div>
@@ -365,6 +366,29 @@
       </div>
     </div>
     <button class="btn-primary" id="settings-done" data-i18n="settings.done">Done</button>
+  </div>
+</div>
+
+<!-- ============ ABOUT ============ -->
+<div id="about" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="about-title">
+  <div class="settings-card about-card">
+    <div class="about-crest"><svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M45 13C52 24 46 42 26 49C17 39 24 21 45 13Z"/><path d="M26 49C33 39 39 28 45 13"/><path d="M26 49L21 55"/><path d="M34 38C37 37 40 35 42 32" stroke-width="1.8"/><path d="M32 31C35 30 38 28 40 25" stroke-width="1.8"/><path d="M31 43C33 43 36 42 38 40" stroke-width="1.8"/></svg></div>
+    <h2 id="about-title" class="about-wordmark">FOLIUM CAFÉ</h2>
+    <p class="about-tag" data-i18n="about.tagline">so you remember the page you were on</p>
+    <p class="about-lead" data-i18n="about.lead">A quiet, private reading room for everything you mean to read. Shelve your books, open them on any device, and always land back on the exact page — and line — you left.</p>
+
+    <div class="about-rule rule-orn"><span class="dot">❦</span></div>
+    <div class="smallcaps about-feat-head" data-i18n="about.featuresTitle">What’s inside</div>
+    <ul class="about-features">
+      <li><h4 data-i18n="about.f1.h">Pick up where you left off</h4><p data-i18n="about.f1.b">Every page turn is saved to your shelf. Switch devices and resume mid-sentence.</p></li>
+      <li><h4 data-i18n="about.f2.h">More than PDFs</h4><p data-i18n="about.f2.b">PDFs, EPUBs, CBZ comics, plain text and Markdown, even audiobooks and video — one calm library for all of it, plus notes you write in place.</p></li>
+      <li><h4 data-i18n="about.f3.h">Yours alone</h4><p data-i18n="about.f3.b">A single private library behind your sign-in. No feeds, no ads, no one else browsing your shelves.</p></li>
+      <li><h4 data-i18n="about.f4.h">Works offline</h4><p data-i18n="about.f4.b">Install it like a native app. Your current books travel with you — on a plane, underground, anywhere.</p></li>
+      <li><h4 data-i18n="about.f5.h">Highlight and share</h4><p data-i18n="about.f5.b">Mark a passage or snip a handsome clipping, then share it in a tap.</p></li>
+      <li><h4 data-i18n="about.f6.h">Made for comfortable reading</h4><p data-i18n="about.f6.b">Paper, sepia, dark and high-contrast themes, adjustable type, and a distraction-free focus mode.</p></li>
+    </ul>
+
+    <button class="btn-primary" id="about-done" data-i18n="about.done">Close</button>
   </div>
 </div>
 
