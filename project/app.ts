@@ -948,6 +948,12 @@ function confirmDialog(message: string): Promise<boolean> {
   });
 }
 
+// ---------- analytics ----------
+declare function gtag(...args: unknown[]): void;
+function track(event: string, params?: Record<string, unknown>) {
+  if (typeof gtag === 'function') gtag('event', event, params);
+}
+
 // ---------- API client ----------
 // The book metadata that lives server-side (everything except the PDF bytes).
 type BookMeta = Omit<Book, 'data'>;
@@ -1883,6 +1889,7 @@ async function ingest(file: File | { name: string; buf: ArrayBuffer; type?: stri
     if (into.length) book.collections = into;
     book.data = buf;
     await dbPut(book);
+    track('add_book', { format: book.format });
     if (format !== 'audio' && format !== 'video') {
       cachePdf(book.id, buf, mimeFor(book.format ?? 'pdf', name));   // bytes in hand — make it offline-ready
     }
@@ -2139,6 +2146,7 @@ async function createCollectionFlow(): Promise<void> {
   try {
     const c = await apiCreateCollection(name);
     collections.push(c); activeCollections.add(c.id); persistActiveCollections();
+    track('collection_create');
     renderLibrary();
   } catch (e) { if (e instanceof ApiNetworkError) toast(t('toast.offlineRetry')); else throw e; }
 }
@@ -3152,6 +3160,7 @@ async function openBook(id: string): Promise<void> {
   const meta = books.find(x => x.id === id);
   if (!meta) { toast(t('toast.cantOpen')); return; }
   const b = meta as Book;
+  track('open_book', { format: b.format });
   reader.adapter?.destroy();   // tear down any previous adapter (scroll listeners etc.)
   reader.adapter = null;
   reader.book = b;
@@ -3349,6 +3358,10 @@ function persistPos(): void {
   b.lastReadAt = Date.now();
   const cached = books.find(x => x.id === b.id);
   if (cached) { cached.currentPage = b.currentPage; cached.posFrac = b.posFrac; cached.progress = b.progress; cached.lastReadAt = b.lastReadAt; }
+  const progressPct = pct(b);
+  if (progressPct > 0 && progressPct % 10 === 0) {
+    track('reading_progress', { format: b.format, pct: progressPct });
+  }
   window.clearTimeout(reader.saveTimer);
   reader.saveTimer = window.setTimeout(() => { dbPutProgress(b).catch(() => {}); }, 350);
 }
@@ -4043,6 +4056,7 @@ function scheduleNoteSave(): void {
     syncNoteMeta();
     try {
       await dbPutNote(b.id, body);
+      track('note_save');
       setNoteSaved(navigator.onLine ? t('note.saved') : t('note.savedOffline'));
     } catch (e) {
       if (e instanceof ApiNetworkError) setNoteSaved(t('note.savedOffline'));
@@ -4100,6 +4114,7 @@ async function createNote(): Promise<void> {
   books.unshift(note);
   renderLibrary();
   toast(t('toast.noteCreated'));
+  track('note_create');
   openNote(id);
 }
 
@@ -4251,6 +4266,7 @@ function wireAuth(): void {
       }
       if (!res.ok) { toast(t('toast.wrongPass')); return; }
       const data = await res.json();
+      track('login', { method: 'cognito' });
       await enterApp(data.username ?? username);
     } catch {
       toast(t('toast.noServer'));
@@ -4289,6 +4305,7 @@ function wireAuth(): void {
         pendingSignupPass = '';
         if (loginRes.ok) {
           const data = await loginRes.json();
+          track('sign_up', { method: 'cognito' });
           await enterApp(data.username ?? pendingUsername);
           return;
         }
@@ -4347,6 +4364,7 @@ function wireAuth(): void {
   el('dropdown').addEventListener('click', (e) => e.stopPropagation());
   wireAddMenu();
   el('btn-logout').addEventListener('click', async () => {
+    track('logout');
     try { await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' }); } catch {}
     localStorage.removeItem(LS.user);
     // Logout means "this device is no longer mine": drop everything local.
@@ -4674,7 +4692,10 @@ function wirePwa(): void {
   el('btn-install').addEventListener('click', async () => {
     if (!deferredInstall) return;
     deferredInstall.prompt();
-    try { await deferredInstall.userChoice; } catch { /* dismissed */ }
+    try {
+      const choice = await deferredInstall.userChoice;
+      if (choice?.outcome === 'accepted') track('pwa_install');
+    } catch { /* dismissed */ }
     deferredInstall = null;
     el('btn-install').classList.add('hidden');
     el('dropdown').classList.add('hidden');
