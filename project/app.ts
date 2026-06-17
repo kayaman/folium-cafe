@@ -279,6 +279,7 @@ const EN = {
   'settings.langSystem': 'System default',
   'settings.done': 'Done',
   'toast.offlineAdd': 'You’re offline — try adding books when you’re back online',
+  'toast.quotaFull': 'Library full — you’ve reached the 50 GB storage limit',
   'toast.cantRead': 'Could not read “{name}”',
   'toast.unsupported': 'Unsupported file type — try PDF, EPUB, CBZ, TXT, Markdown, audio or video',
   'toast.shelving.one': 'Shelving your book…',
@@ -484,6 +485,7 @@ const PT: Record<MsgKey, string> = {
   'settings.langSystem': 'Padrão do sistema',
   'settings.done': 'Concluído',
   'toast.offlineAdd': 'Você está offline — tente adicionar livros quando voltar a ficar online',
+  'toast.quotaFull': 'Biblioteca cheia — você atingiu o limite de 50 GB de armazenamento',
   'toast.cantRead': 'Não foi possível ler “{name}”',
   'toast.unsupported': 'Tipo de arquivo não suportado — tente PDF, EPUB, CBZ, TXT, Markdown, áudio ou vídeo',
   'toast.shelving.one': 'Colocando seu livro na estante…',
@@ -688,6 +690,7 @@ const ES: Record<MsgKey, string> = {
   'settings.langSystem': 'Predeterminado del sistema',
   'settings.done': 'Listo',
   'toast.offlineAdd': 'Estás sin conexión: intenta añadir libros cuando vuelvas a estar en línea',
+  'toast.quotaFull': 'Biblioteca llena: has alcanzado el límite de 50 GB de almacenamiento',
   'toast.cantRead': 'No se pudo leer “{name}”',
   'toast.unsupported': 'Tipo de archivo no compatible — prueba PDF, EPUB, CBZ, TXT, Markdown, audio o vídeo',
   'toast.shelving.one': 'Colocando tu libro en el estante…',
@@ -962,6 +965,8 @@ type BookMeta = Omit<Book, 'data'>;
 // login screen), so api() throws typed errors instead of one generic Error.
 class ApiAuthError extends Error {}
 class ApiNetworkError extends Error {}
+// Raised when an upload would exceed (or did exceed) the per-user storage quota.
+class ApiQuotaError extends Error {}
 
 async function api(path: string, opts: RequestInit = {}): Promise<Response> {
   let res: Response;
@@ -1132,18 +1137,26 @@ async function dbPut(b: Book): Promise<void> {
   // Tell the backend the format-specific content-type we'd use; it echoes back
   // the authoritative `contentType` baked into the presigned PUT signature, and
   // the S3 PUT MUST send exactly that header or the signature check fails.
-  const meta: BookMeta & { contentType?: string } = stripData(b);
+  const meta: BookMeta & { contentType?: string; size?: number } = stripData(b);
   meta.contentType = mimeFor(b.format ?? 'pdf', b.fileName);
+  // Declared upload size — drives the server's quota admission check.
+  meta.size = b.data ? b.data.byteLength : 0;
   const res = await api('/books', { method: 'POST', body: JSON.stringify(meta) });
+  if (res.status === 413) throw new ApiQuotaError('quota exceeded');
   if (!res.ok) throw new Error('save failed');
   const { uploadUrl, contentType } = await res.json();
-  if (b.data && uploadUrl) {
+  if (b.data && b.data.byteLength && uploadUrl) {
     const put = await fetch(uploadUrl, {
       method: 'PUT',
       headers: { 'content-type': contentType || mimeFor(b.format ?? 'pdf', b.fileName) },
       body: b.data,
     });
     if (!put.ok) throw new Error('upload failed');
+    // Verify the true uploaded size against the quota now that the bytes landed.
+    // A 413 here means the file overshot; the server has already undone the upload.
+    const fin = await api('/books/' + encodeURIComponent(b.id) + '/finalize', { method: 'POST' });
+    if (fin.status === 413) throw new ApiQuotaError('quota exceeded');
+    if (!fin.ok) throw new Error('finalize failed');
   }
 }
 
@@ -1897,7 +1910,8 @@ async function ingest(file: File | { name: string; buf: ArrayBuffer; type?: stri
     return book;
   } catch (e) {
     console.error('ingest failed', e);
-    if (e instanceof ApiNetworkError) toast(t('toast.offlineAdd'));
+    if (e instanceof ApiQuotaError) toast(t('toast.quotaFull'), { error: true });
+    else if (e instanceof ApiNetworkError) toast(t('toast.offlineAdd'));
     else toast(t('toast.cantRead', { name }));
     return null;
   }
