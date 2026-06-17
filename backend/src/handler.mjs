@@ -230,7 +230,14 @@ export async function handler(event) {
       }
       const contentType = repo.chooseContentType(format, body.contentType);
       if (contentType === null) return ok(json(400, { error: 'bad content type' }));
-      await repo.putBook(userId, { ...body, format });
+      // Quota admission: reject up front (no presign) if the client-declared size
+      // would push the user past the cap. The true size is re-checked at finalize.
+      const declaredSize = Number.isFinite(Number(body.size)) && Number(body.size) > 0
+        ? Math.floor(Number(body.size)) : 0;
+      if (repo.exceedsQuota(await repo.usageBytes(userId, body.id), declaredSize)) {
+        return ok(json(413, { error: 'quota exceeded' }));
+      }
+      await repo.putBook(userId, { ...body, format, size: declaredSize });
       const uploadUrl = await repo.presignPut(userId, body.id, format, contentType);
       return ok(json(200, { ok: true, uploadUrl, contentType }));
     }
@@ -257,11 +264,25 @@ export async function handler(event) {
       }
     }
 
-    const m = path.match(/^\/api\/books\/([^/]+)(\/url|\/progress|\/collections)?$/);
+    const m = path.match(/^\/api\/books\/([^/]+)(\/url|\/progress|\/collections|\/finalize)?$/);
     if (m) {
       const id = decodeURIComponent(m[1]);
       const sub = m[2];
 
+      if (method === 'POST' && sub === '/finalize') {
+        // Post-upload verification: read the object's true size and re-check the
+        // quota. If the client under-reported and overshot, undo the upload
+        // (delete object + item) and reject; otherwise record the real size.
+        const book = await repo.getBook(userId, id);
+        if (!book) return ok(json(404, { error: 'not found' }));
+        const trueSize = await repo.headObjectSize(userId, id, book.format);
+        if (repo.exceedsQuota(await repo.usageBytes(userId, id), trueSize)) {
+          await repo.deleteBook(userId, id);
+          return ok(json(413, { error: 'quota exceeded' }));
+        }
+        await repo.setBookSize(userId, id, trueSize);
+        return ok(json(200, { ok: true, size: trueSize }));
+      }
       if (method === 'GET' && sub === '/url') {
         const book = await repo.getBook(userId, id);
         if (!book) return ok(json(404, { error: 'not found' }));

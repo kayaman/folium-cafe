@@ -3,11 +3,14 @@ import {
   DynamoDBDocumentClient, QueryCommand, PutCommand, GetCommand,
   UpdateCommand, DeleteCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import {
+  S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 export const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
-const s3 = new S3Client({});
+// Exported so unit tests can mock `.send`, mirroring `ddb`.
+export const s3 = new S3Client({});
 
 const TABLE = process.env.TABLE_NAME;
 const BUCKET = process.env.PDF_BUCKET;
@@ -352,4 +355,57 @@ export function presignGet(userId, id, format = 'pdf') {
   return getSignedUrl(s3, new GetObjectCommand({
     Bucket: BUCKET, Key: mediaKey(userId, id, format),
   }), { expiresIn: 900 });
+}
+
+// ---------- per-user storage quota ----------
+// Hard ceiling on the total bytes one user may store. Usage is the sum of each
+// book's `size` (the real uploaded byte count, written at finalize). Enforced
+// two-phase in the handler: a declared-size admission check before issuing the
+// presigned PUT, then a true-size HeadObject check after the bytes land.
+export const USER_QUOTA_BYTES = 50 * 2 ** 30; // 50 GiB
+
+// Pure: total stored bytes across `books`, ignoring `excludeId` so a re-upload
+// of an existing id counts only the size delta. Missing/invalid/negative sizes
+// (legacy items, linked media, notes) contribute zero.
+export function sumSizes(books, excludeId) {
+  let total = 0;
+  for (const b of books) {
+    if (excludeId !== undefined && b.id === excludeId) continue;
+    const n = Number(b?.size);
+    if (Number.isFinite(n) && n > 0) total += n;
+  }
+  return total;
+}
+
+// Pure: would storing `addBytes` more push the user past the cap? The cap is
+// inclusive — landing exactly on USER_QUOTA_BYTES is allowed.
+export function exceedsQuota(currentUsage, addBytes, quota = USER_QUOTA_BYTES) {
+  return currentUsage + addBytes > quota;
+}
+
+// Current stored usage for a user, optionally excluding one book id.
+export async function usageBytes(userId, excludeId) {
+  return sumSizes(await listBooks(userId), excludeId);
+}
+
+// True byte count of the uploaded object (post-upload verification). 0 when the
+// object reports no ContentLength.
+export async function headObjectSize(userId, id, format) {
+  const out = await s3.send(new HeadObjectCommand({
+    Bucket: BUCKET, Key: mediaKey(userId, id, format),
+  }));
+  return out.ContentLength ?? 0;
+}
+
+// Write the authoritative `size` onto a book item. `size` is a DynamoDB reserved
+// word -> aliased. Guarded so it never resurrects a deleted item.
+export async function setBookSize(userId, id, size) {
+  await ddb.send(new UpdateCommand({
+    TableName: TABLE,
+    Key: { pk: pk(userId), id },
+    UpdateExpression: 'SET #size = :s',
+    ConditionExpression: 'attribute_exists(id)',
+    ExpressionAttributeNames: { '#size': 'size' },
+    ExpressionAttributeValues: { ':s': size },
+  }));
 }
