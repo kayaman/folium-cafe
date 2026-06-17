@@ -136,6 +136,20 @@ button{font-family:inherit;cursor:pointer}
 .btn-primary:active{transform:translateY(1px)}
 .login-note{text-align:center;font-size:12.5px;color:var(--muted);margin-top:18px;font-style:italic}
 
+/* ---------- auth: tabs + multi-step ---------- */
+.auth-tabs{display:flex;gap:6px;margin-bottom:22px;border-bottom:1px solid var(--leather-2)}
+.auth-tab{flex:1;padding:10px 8px;background:none;border:none;cursor:pointer;
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.16em;font-size:12px;
+  color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;transition:.18s}
+.auth-tab:hover{color:var(--ink)}
+.auth-tab.active{color:var(--leather-2);border-bottom-color:var(--leather-2)}
+.auth-step.hidden{display:none}
+.field-hint{display:block;margin-top:6px;font-size:11.5px;color:var(--muted);font-style:italic}
+.auth-msg{text-align:center;font-size:13.5px;color:var(--ink);margin:0 0 18px}
+.auth-link{display:block;width:100%;margin-top:14px;padding:4px;background:none;border:none;cursor:pointer;
+  font-size:12.5px;color:var(--muted);text-decoration:underline;text-underline-offset:2px;transition:.18s}
+.auth-link:hover{color:var(--leather-2)}
+
 /* ============================================================
    APP CHROME / MASTHEAD
    ============================================================ */

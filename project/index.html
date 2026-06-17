@@ -51,22 +51,82 @@
 <!-- ============ LOGIN ============ -->
 <section id="login">
   <div class="vignette"></div>
-  <form class="login-card" id="login-form" autocomplete="off">
+  <div class="login-card">
     <div class="crest"><svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M45 13C52 24 46 42 26 49C17 39 24 21 45 13Z"/><path d="M26 49C33 39 39 28 45 13"/><path d="M26 49L21 55"/><path d="M34 38C37 37 40 35 42 32" stroke-width="1.8"/><path d="M32 31C35 30 38 28 40 25" stroke-width="1.8"/><path d="M31 43C33 43 36 42 38 40" stroke-width="1.8"/></svg></div>
     <h1>FOLIUM CAFÉ</h1>
     <p class="tag" data-i18n="login.tagline">so you remember the page you were on</p>
-    <div class="field">
-      <label for="login-name" data-i18n="login.reader">Reader</label>
-      <input id="login-name" type="text" placeholder="Your name" data-i18n-placeholder="login.namePh" required>
+
+    <div class="auth-tabs" id="auth-tabs">
+      <button type="button" class="auth-tab active" data-tab="signin" data-i18n="auth.tabSignIn">Sign in</button>
+      <button type="button" class="auth-tab" data-tab="signup" data-i18n="auth.tabSignUp">Sign up</button>
     </div>
-    <div class="field">
-      <label for="login-pass" data-i18n="login.passphrase">Passphrase</label>
-      <input id="login-pass" type="password" placeholder="••••••••" required>
+
+    <form id="signin-form" class="auth-step" autocomplete="off">
+      <div class="field">
+        <label for="signin-user" data-i18n="auth.username">Username</label>
+        <input id="signin-user" type="text" autocomplete="username" data-i18n-placeholder="auth.usernamePh" placeholder="your-handle" required>
+      </div>
+      <div class="field">
+        <label for="signin-pass" data-i18n="auth.password">Password</label>
+        <input id="signin-pass" type="password" autocomplete="current-password" placeholder="••••••••" required>
+      </div>
+      <button class="btn-primary" type="submit" data-i18n="auth.signIn">Sign in</button>
+      <button type="button" class="auth-link" id="btn-forgot" data-i18n="auth.forgot">Forgot password?</button>
+    </form>
+
+    <form id="signup-form" class="auth-step hidden" autocomplete="off">
+      <div class="field">
+        <label for="signup-user" data-i18n="auth.username">Username</label>
+        <input id="signup-user" type="text" autocomplete="username" data-i18n-placeholder="auth.usernamePh" placeholder="your-handle" required>
+        <span class="field-hint" data-i18n="auth.handleHint">4–12 chars, lowercase letters and digits</span>
+      </div>
+      <div class="field">
+        <label for="signup-email" data-i18n="auth.email">Email</label>
+        <input id="signup-email" type="email" autocomplete="email" data-i18n-placeholder="auth.emailPh" placeholder="you@example.com" required>
+      </div>
+      <div class="field">
+        <label for="signup-pass" data-i18n="auth.password">Password</label>
+        <input id="signup-pass" type="password" autocomplete="new-password" placeholder="••••••••" required minlength="12">
+      </div>
+      <button class="btn-primary" type="submit" data-i18n="auth.signUp">Create account</button>
+    </form>
+
+    <div id="confirm-step" class="auth-step hidden">
+      <p class="auth-msg" data-i18n="auth.checkEmail">Check your email for the verification code</p>
+      <form id="confirm-form" autocomplete="off">
+        <div class="field">
+          <label for="confirm-code" data-i18n="auth.code">Verification code</label>
+          <input id="confirm-code" type="text" inputmode="numeric" autocomplete="one-time-code" data-i18n-placeholder="auth.codePh" placeholder="123456" required>
+        </div>
+        <button class="btn-primary" type="submit" data-i18n="auth.confirm">Confirm</button>
+        <button type="button" class="auth-link" id="btn-resend" data-i18n="auth.resend">Resend code</button>
+      </form>
     </div>
-    <button class="btn-primary" type="submit" data-i18n="login.submit">Enter the café</button>
+
+    <form id="forgot-form" class="auth-step hidden" autocomplete="off">
+      <div class="field">
+        <label for="forgot-user" data-i18n="auth.username">Username</label>
+        <input id="forgot-user" type="text" autocomplete="username" data-i18n-placeholder="auth.usernamePh" placeholder="your-handle" required>
+      </div>
+      <button class="btn-primary" type="submit" data-i18n="auth.resetSend">Send reset code</button>
+      <button type="button" class="auth-link" id="btn-back-signin" data-i18n="auth.backToSignIn">Back to sign in</button>
+    </form>
+
+    <form id="reset-form" class="auth-step hidden" autocomplete="off">
+      <div class="field">
+        <label for="reset-code" data-i18n="auth.code">Verification code</label>
+        <input id="reset-code" type="text" inputmode="numeric" autocomplete="one-time-code" data-i18n-placeholder="auth.codePh" placeholder="123456" required>
+      </div>
+      <div class="field">
+        <label for="reset-pass" data-i18n="auth.newPassword">New password</label>
+        <input id="reset-pass" type="password" autocomplete="new-password" placeholder="••••••••" required minlength="12">
+      </div>
+      <button class="btn-primary" type="submit" data-i18n="auth.resetConfirm">Set new password</button>
+    </form>
+
     <p class="login-note" data-i18n="login.note">Your library is kept on a private shelf — sign in from any device to pick up where you left off.</p>
     <p class="login-note login-waiting hidden" id="login-waiting"></p>
-  </form>
+  </div>
 </section>
 
 <!-- ============ APP ============ -->

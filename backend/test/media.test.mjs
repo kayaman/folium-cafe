@@ -3,20 +3,22 @@ import assert from 'node:assert/strict';
 import { FORMATS, mediaKey, chooseContentType } from '../src/repo.mjs';
 import { parseProgressBody } from '../src/handler.mjs';
 
+const UID = 'user-abc';
+
 // ---------- mediaKey ----------
 
-test('mediaKey pdf returns the exact legacy key (back-compat guard)', () => {
-  assert.equal(mediaKey('b3k2', 'pdf'), 'pdfs/b3k2.pdf');
+test('mediaKey pdf is namespaced under the user prefix', () => {
+  assert.equal(mediaKey(UID, 'b3k2', 'pdf'), 'u/user-abc/pdfs/b3k2.pdf');
 });
 
-test('mediaKey routes each format to its prefix', () => {
-  assert.equal(mediaKey('x', 'note'), 'notes/x.md');
-  assert.equal(mediaKey('x', 'cbz'), 'media/x.cbz');
-  assert.equal(mediaKey('x', 'epub'), 'media/x.epub');
-  assert.equal(mediaKey('x', 'txt'), 'media/x.txt');
-  assert.equal(mediaKey('x', 'md'), 'media/x.md');
-  assert.equal(mediaKey('x', 'audio'), 'media/x.audio');
-  assert.equal(mediaKey('x', 'video'), 'media/x.video');
+test('mediaKey routes each format to its prefix under the user namespace', () => {
+  assert.equal(mediaKey(UID, 'x', 'note'), 'u/user-abc/notes/x.md');
+  assert.equal(mediaKey(UID, 'x', 'cbz'), 'u/user-abc/media/x.cbz');
+  assert.equal(mediaKey(UID, 'x', 'epub'), 'u/user-abc/media/x.epub');
+  assert.equal(mediaKey(UID, 'x', 'txt'), 'u/user-abc/media/x.txt');
+  assert.equal(mediaKey(UID, 'x', 'md'), 'u/user-abc/media/x.md');
+  assert.equal(mediaKey(UID, 'x', 'audio'), 'u/user-abc/media/x.audio');
+  assert.equal(mediaKey(UID, 'x', 'video'), 'u/user-abc/media/x.video');
 });
 
 // ---------- chooseContentType ----------

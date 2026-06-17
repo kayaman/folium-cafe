@@ -6,12 +6,15 @@ import { ddb, listBooks } from '../src/repo.mjs';
 // throws ValidationException and 500s every GET /api/books. listBooks must query
 // the partition plainly and exclude clip/collection records in app code.
 
+const UID = 'user1';
+const PK = 'u#user1';
+
 const MIXED = [
-  { pk: 'lib', id: 'bmq1', title: 'Legacy PDF' },            // legacy book: no format
-  { pk: 'lib', id: 'bmq2', format: 'pdf', title: 'A PDF' },
-  { pk: 'lib', id: 'nmq1', format: 'note', title: 'A note' },// notes belong in the library
-  { pk: 'lib', id: 'bmq1#hl#c1', text: 'a clip' },           // clip -> excluded
-  { pk: 'lib', id: 'collmq1', name: 'A collection' },        // collection -> excluded
+  { pk: PK, id: 'bmq1', title: 'Legacy PDF' },            // legacy book: no format
+  { pk: PK, id: 'bmq2', format: 'pdf', title: 'A PDF' },
+  { pk: PK, id: 'nmq1', format: 'note', title: 'A note' },// notes belong in the library
+  { pk: PK, id: 'bmq1#hl#c1', text: 'a clip' },           // clip -> excluded
+  { pk: PK, id: 'collmq1', name: 'A collection' },        // collection -> excluded
 ];
 
 test('listBooks sends no FilterExpression (never reference the id sort key)', async (t) => {
@@ -21,12 +24,13 @@ test('listBooks sends no FilterExpression (never reference the id sort key)', as
     return { Items: MIXED };
   });
 
-  const books = await listBooks();
+  const books = await listBooks(UID);
 
   // Regression guard: the query must not carry a FilterExpression at all.
   assert.ok(inputs.length >= 1);
   for (const inp of inputs) assert.equal(inp.FilterExpression, undefined);
   assert.equal(inputs[0].KeyConditionExpression, 'pk = :pk');
+  assert.equal(inputs[0].ExpressionAttributeValues[':pk'], PK);
 
   // Clips and collections excluded; books + notes kept.
   assert.deepEqual(books.map((b) => b.id).sort(), ['bmq1', 'bmq2', 'nmq1']);
@@ -43,13 +47,13 @@ test('listBooks paginates over LastEvaluatedKey', async (t) => {
     call += 1;
     if (call === 1) {
       assert.equal(cmd.input.ExclusiveStartKey, undefined);
-      return { Items: [{ pk: 'lib', id: 'bmq1', format: 'pdf' }], LastEvaluatedKey: { pk: 'lib', id: 'bmq1' } };
+      return { Items: [{ pk: PK, id: 'bmq1', format: 'pdf' }], LastEvaluatedKey: { pk: PK, id: 'bmq1' } };
     }
-    assert.deepEqual(cmd.input.ExclusiveStartKey, { pk: 'lib', id: 'bmq1' });
-    return { Items: [{ pk: 'lib', id: 'bmq2', format: 'pdf' }] };
+    assert.deepEqual(cmd.input.ExclusiveStartKey, { pk: PK, id: 'bmq1' });
+    return { Items: [{ pk: PK, id: 'bmq2', format: 'pdf' }] };
   });
 
-  const books = await listBooks();
+  const books = await listBooks(UID);
   assert.equal(call, 2);
   assert.deepEqual(books.map((b) => b.id).sort(), ['bmq1', 'bmq2']);
 });

@@ -35,7 +35,7 @@ test('putClipping stores the composite key, not the bare clip id', async (t) => 
   let captured;
   t.mock.method(ddb, 'send', async (cmd) => { captured = cmd.input; return {}; });
 
-  await putClipping('bmqf', { id: 'cmqf', page: 7, color: '#dcb064', rects: [{ x: 0, y: 0, w: 1, h: 1 }] });
+  await putClipping('user1', 'bmqf', { id: 'cmqf', page: 7, color: '#dcb064', rects: [{ x: 0, y: 0, w: 1, h: 1 }] });
 
   assert.equal(captured.Item.id, 'bmqf#hl#cmqf');
   assert.equal(isClipItem(captured.Item.id), true);

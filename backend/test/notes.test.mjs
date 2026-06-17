@@ -28,6 +28,6 @@ test('a note id has no clip separator, so isClipItem is false', () => {
 
 // ---------- mediaKey cross-check ----------
 
-test('mediaKey routes a note to notes/<id>.md', () => {
-  assert.equal(mediaKey('nabc', 'note'), 'notes/nabc.md');
+test('mediaKey routes a note to the per-user notes prefix', () => {
+  assert.equal(mediaKey('user1', 'nabc', 'note'), 'u/user1/notes/nabc.md');
 });

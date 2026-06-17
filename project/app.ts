@@ -200,11 +200,32 @@ type LangPref = 'system' | Locale;
 
 const EN = {
   'login.tagline': 'so you remember the page you were on',
-  'login.reader': 'Reader',
-  'login.namePh': 'Your name',
-  'login.passphrase': 'Passphrase',
-  'login.submit': 'Enter the café',
   'login.note': 'Your library is kept on a private shelf — sign in from any device to pick up where you left off.',
+  'auth.tabSignIn': 'Sign in',
+  'auth.tabSignUp': 'Sign up',
+  'auth.username': 'Username',
+  'auth.usernamePh': 'your-handle',
+  'auth.email': 'Email',
+  'auth.emailPh': 'you@example.com',
+  'auth.password': 'Password',
+  'auth.newPassword': 'New password',
+  'auth.signIn': 'Sign in',
+  'auth.signUp': 'Create account',
+  'auth.code': 'Verification code',
+  'auth.codePh': '123456',
+  'auth.confirm': 'Confirm',
+  'auth.resend': 'Resend code',
+  'auth.forgot': 'Forgot password?',
+  'auth.resetSend': 'Send reset code',
+  'auth.resetConfirm': 'Set new password',
+  'auth.backToSignIn': 'Back to sign in',
+  'auth.handleHint': '4–12 chars, lowercase letters and digits',
+  'auth.checkEmail': 'Check your email for the verification code',
+  'auth.resetSent': 'Reset code sent — check your email',
+  'auth.passwordReset': 'Password updated — you can now sign in',
+  'toast.signUpFailed': 'Could not create account',
+  'toast.confirmFailed': 'Wrong or expired code — try again',
+  'toast.resetFailed': 'Could not reset password',
   'mast.libraryTitle': 'Library',
   'mast.viewAria': 'Library view',
   'mast.shelf': 'Shelf',
@@ -384,11 +405,32 @@ type MsgKey = keyof typeof EN;
 
 const PT: Record<MsgKey, string> = {
   'login.tagline': 'para você lembrar da página em que parou',
-  'login.reader': 'Leitor',
-  'login.namePh': 'Seu nome',
-  'login.passphrase': 'Senha',
-  'login.submit': 'Entrar no café',
   'login.note': 'Sua biblioteca fica numa estante particular — entre de qualquer dispositivo para continuar de onde parou.',
+  'auth.tabSignIn': 'Entrar',
+  'auth.tabSignUp': 'Cadastrar',
+  'auth.username': 'Nome de usuário',
+  'auth.usernamePh': 'seu-apelido',
+  'auth.email': 'E-mail',
+  'auth.emailPh': 'voce@exemplo.com',
+  'auth.password': 'Senha',
+  'auth.newPassword': 'Nova senha',
+  'auth.signIn': 'Entrar',
+  'auth.signUp': 'Criar conta',
+  'auth.code': 'Código de verificação',
+  'auth.codePh': '123456',
+  'auth.confirm': 'Confirmar',
+  'auth.resend': 'Reenviar código',
+  'auth.forgot': 'Esqueceu a senha?',
+  'auth.resetSend': 'Enviar código de redefinição',
+  'auth.resetConfirm': 'Definir nova senha',
+  'auth.backToSignIn': 'Voltar para entrar',
+  'auth.handleHint': '4–12 caracteres, letras minúsculas e dígitos',
+  'auth.checkEmail': 'Verifique seu e-mail para o código de verificação',
+  'auth.resetSent': 'Código enviado — verifique seu e-mail',
+  'auth.passwordReset': 'Senha atualizada — você já pode entrar',
+  'toast.signUpFailed': 'Não foi possível criar a conta',
+  'toast.confirmFailed': 'Código errado ou expirado — tente novamente',
+  'toast.resetFailed': 'Não foi possível redefinir a senha',
   'mast.libraryTitle': 'Biblioteca',
   'mast.viewAria': 'Visualização da biblioteca',
   'mast.shelf': 'Estante',
@@ -567,11 +609,32 @@ const PT: Record<MsgKey, string> = {
 
 const ES: Record<MsgKey, string> = {
   'login.tagline': 'para que recuerdes la página en la que estabas',
-  'login.reader': 'Lector',
-  'login.namePh': 'Tu nombre',
-  'login.passphrase': 'Contraseña',
-  'login.submit': 'Entrar al café',
   'login.note': 'Tu biblioteca se guarda en un estante privado: inicia sesión desde cualquier dispositivo para continuar donde lo dejaste.',
+  'auth.tabSignIn': 'Iniciar sesión',
+  'auth.tabSignUp': 'Registrarse',
+  'auth.username': 'Nombre de usuario',
+  'auth.usernamePh': 'tu-apodo',
+  'auth.email': 'Correo electrónico',
+  'auth.emailPh': 'tu@ejemplo.com',
+  'auth.password': 'Contraseña',
+  'auth.newPassword': 'Nueva contraseña',
+  'auth.signIn': 'Iniciar sesión',
+  'auth.signUp': 'Crear cuenta',
+  'auth.code': 'Código de verificación',
+  'auth.codePh': '123456',
+  'auth.confirm': 'Confirmar',
+  'auth.resend': 'Reenviar código',
+  'auth.forgot': '¿Olvidaste tu contraseña?',
+  'auth.resetSend': 'Enviar código de restablecimiento',
+  'auth.resetConfirm': 'Establecer nueva contraseña',
+  'auth.backToSignIn': 'Volver a iniciar sesión',
+  'auth.handleHint': '4–12 caracteres, letras minúsculas y dígitos',
+  'auth.checkEmail': 'Revisa tu correo para el código de verificación',
+  'auth.resetSent': 'Código enviado — revisa tu correo',
+  'auth.passwordReset': 'Contraseña actualizada — ya puedes iniciar sesión',
+  'toast.signUpFailed': 'No se pudo crear la cuenta',
+  'toast.confirmFailed': 'Código incorrecto o expirado — intenta de nuevo',
+  'toast.resetFailed': 'No se pudo restablecer la contraseña',
   'mast.libraryTitle': 'Biblioteca',
   'mast.viewAria': 'Vista de la biblioteca',
   'mast.shelf': 'Estante',
@@ -913,6 +976,9 @@ async function api(path: string, opts: RequestInit = {}): Promise<Response> {
 
 let _onUnauthorized: () => void = () => {};
 function onUnauthorized(): void { _onUnauthorized(); }
+
+// Set by wireAuth(); lets _onUnauthorized reset the auth card to the sign-in step.
+let _showAuthStep: (step: string) => void = () => {};
 
 // ---------- offline stores ----------
 // PDF bytes and the library snapshot live in the Cache API under synthetic
@@ -4118,23 +4184,155 @@ function showApp(name: string): void {
   el('avatar-initial').textContent = initial;
   el('user-name').textContent = name.trim() || t('common.reader');
 }
+type AuthStep = 'signin' | 'signup' | 'confirm' | 'forgot' | 'reset';
+
 function wireAuth(): void {
-  el<HTMLFormElement>('login-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const name = (el('login-name') as HTMLInputElement).value.trim() || t('common.reader');
-    const pass = (el('login-pass') as HTMLInputElement).value;
-    if (!pass) return;
-    try {
-      const res = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ password: pass }),
+  let pendingUsername = '';
+  let pendingSignupPass = '';
+  let forgotUsername = '';
+
+  const STEP_FORM: Record<AuthStep, string> = {
+    signin: 'signin-form',
+    signup: 'signup-form',
+    confirm: 'confirm-step',
+    forgot: 'forgot-form',
+    reset: 'reset-form',
+  };
+
+  function showAuthStep(step: AuthStep): void {
+    const showTabs = step === 'signin' || step === 'signup';
+    el('auth-tabs').classList.toggle('hidden', !showTabs);
+    for (const [s, id] of Object.entries(STEP_FORM)) {
+      el(id).classList.toggle('hidden', s !== step);
+    }
+    if (showTabs) {
+      el('auth-tabs').querySelectorAll('.auth-tab').forEach((btn) => {
+        btn.classList.toggle('active', (btn as HTMLElement).dataset.tab === step);
       });
+    }
+  }
+  _showAuthStep = (s) => showAuthStep(s as AuthStep);
+
+  // Shared POST helper — same-origin JSON, never throws on HTTP status.
+  const post = (path: string, payload: unknown) => fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify(payload),
+  });
+
+  async function enterApp(username: string): Promise<void> {
+    localStorage.setItem(LS.user, JSON.stringify({ name: username }));
+    showApp(username);
+    await boot();
+  }
+
+  el('auth-tabs').addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('[data-tab]') as HTMLElement | null;
+    if (!btn) return;
+    const tab = btn.dataset.tab;
+    if (tab === 'signin' || tab === 'signup') showAuthStep(tab);
+  });
+
+  el<HTMLFormElement>('signin-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = (el('signin-user') as HTMLInputElement).value.trim();
+    const pass = (el('signin-pass') as HTMLInputElement).value;
+    if (!username || !pass) return;
+    try {
+      const res = await post('/api/auth/login', { username, password: pass });
+      if (res.status === 403) {
+        // Account exists but email not confirmed — route to the confirm step.
+        pendingUsername = username;
+        pendingSignupPass = pass;
+        showAuthStep('confirm');
+        toast(t('auth.checkEmail'));
+        return;
+      }
       if (!res.ok) { toast(t('toast.wrongPass')); return; }
-      localStorage.setItem(LS.user, JSON.stringify({ name }));
-      showApp(name);
-      await boot();
+      const data = await res.json();
+      await enterApp(data.username ?? username);
+    } catch {
+      toast(t('toast.noServer'));
+    }
+  });
+
+  el<HTMLFormElement>('signup-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = (el('signup-user') as HTMLInputElement).value.trim();
+    const email = (el('signup-email') as HTMLInputElement).value.trim();
+    const pass = (el('signup-pass') as HTMLInputElement).value;
+    try {
+      const res = await post('/api/auth/signup', { username, email, password: pass });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        toast(data.error || t('toast.signUpFailed'));
+        return;
+      }
+      pendingUsername = username;
+      pendingSignupPass = pass;
+      showAuthStep('confirm');
+    } catch {
+      toast(t('toast.noServer'));
+    }
+  });
+
+  el<HTMLFormElement>('confirm-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const code = (el('confirm-code') as HTMLInputElement).value.trim();
+    try {
+      const res = await post('/api/auth/confirm', { username: pendingUsername, code });
+      if (!res.ok) { toast(t('toast.confirmFailed')); return; }
+      // Auto sign-in when we still hold the password from this session.
+      if (pendingSignupPass) {
+        const loginRes = await post('/api/auth/login', { username: pendingUsername, password: pendingSignupPass });
+        pendingSignupPass = '';
+        if (loginRes.ok) {
+          const data = await loginRes.json();
+          await enterApp(data.username ?? pendingUsername);
+          return;
+        }
+      }
+      showAuthStep('signin');
+    } catch {
+      toast(t('toast.noServer'));
+    }
+  });
+
+  el('btn-resend').addEventListener('click', async () => {
+    try {
+      await post('/api/auth/resend', { username: pendingUsername });
+      toast(t('auth.checkEmail'));
+    } catch {
+      toast(t('toast.noServer'));
+    }
+  });
+
+  el('btn-forgot').addEventListener('click', () => showAuthStep('forgot'));
+  el('btn-back-signin').addEventListener('click', () => showAuthStep('signin'));
+
+  el<HTMLFormElement>('forgot-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    forgotUsername = (el('forgot-user') as HTMLInputElement).value.trim();
+    if (!forgotUsername) return;
+    try {
+      await post('/api/auth/forgot', { username: forgotUsername });
+      toast(t('auth.resetSent'));
+      showAuthStep('reset');
+    } catch {
+      toast(t('toast.noServer'));
+    }
+  });
+
+  el<HTMLFormElement>('reset-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const code = (el('reset-code') as HTMLInputElement).value.trim();
+    const pass = (el('reset-pass') as HTMLInputElement).value;
+    try {
+      const res = await post('/api/auth/confirm-forgot', { username: forgotUsername, code, password: pass });
+      if (!res.ok) { toast(t('toast.resetFailed')); return; }
+      toast(t('auth.passwordReset'));
+      showAuthStep('signin');
     } catch {
       toast(t('toast.noServer'));
     }
@@ -4163,7 +4361,8 @@ function wireAuth(): void {
     el('app').classList.add('hidden');
     el('login').classList.remove('hidden');
     el('dropdown').classList.add('hidden');
-    (el('login-pass') as HTMLInputElement).value = '';
+    (el('signin-pass') as HTMLInputElement).value = '';
+    _showAuthStep('signin');
     booted = false;
     books = [];
     void showWaitingCue();
@@ -4544,6 +4743,7 @@ function init(): void {
     localStorage.removeItem(LS.user);
     el('app').classList.add('hidden');
     el('login').classList.remove('hidden');
+    _showAuthStep('signin');
     booted = false;
     void showWaitingCue();
   };

@@ -20,6 +20,6 @@ test('BOOK_META_FIELDS allows the expected metadata fields only', () => {
 // throw (no AWS credentials / network), failing the test.
 test('updateBookMeta is a no-op (no AWS call) when nothing is allowlisted', async () => {
   await assert.doesNotReject(
-    updateBookMeta('b123', { id: 'evil', pk: 'lib', format: 'pdf', title: undefined }),
+    updateBookMeta('user1', 'b123', { id: 'evil', pk: 'lib', format: 'pdf', title: undefined }),
   );
 });
