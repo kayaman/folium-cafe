@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Folium Café</title>
+<meta name="description" content="Folium Café — a private reading room for your PDFs, so you remember the page you were on.">
+<meta name="theme-color" content="#5e261d">
+<meta name="color-scheme" content="light dark">
+<link rel="manifest" href="/manifest.webmanifest">
+<script>(function(){try{var p=localStorage.getItem('folium.theme')||'system';var r=p==='system'?(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'paper'):p;document.documentElement.dataset.theme=r;var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',{paper:'#5e261d',sepia:'#7c3327',dark:'#161109',hc:'#000000'}[r]||'#5e261d');}catch(e){}})();</script>
+<link rel="stylesheet" href="/styles.css">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<style>
+/* Standalone /about page: reuse the login screen's centred vignette layout and
+   the About modal's card styling (.about-card) so the page mirrors the in-app
+   About modal. No app.js runs here — only styles.css + the inline i18n below. */
+#about-page{position:fixed;inset:0;display:grid;place-items:center;padding:24px;overflow:auto}
+#about-page .vignette{position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(60% 70% at 50% 38%, rgba(246,239,224,.0), rgba(94,38,29,.10) 120%)}
+#about-page .about-card{position:relative}
+.about-contact{margin-top:18px}
+.about-contact a{color:var(--leather)}
+.about-back{margin-top:22px;display:inline-block;text-align:center}
+</style>
+</head>
+<body>
+
+<main id="about-page">
+  <div class="vignette"></div>
+  <article class="settings-card about-card" aria-labelledby="about-title">
+    <div class="about-crest"><svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M45 13C52 24 46 42 26 49C17 39 24 21 45 13Z"/><path d="M26 49C33 39 39 28 45 13"/><path d="M26 49L21 55"/><path d="M34 38C37 37 40 35 42 32" stroke-width="1.8"/><path d="M32 31C35 30 38 28 40 25" stroke-width="1.8"/><path d="M31 43C33 43 36 42 38 40" stroke-width="1.8"/></svg></div>
+    <h1 id="about-title" class="about-wordmark">FOLIUM CAFÉ</h1>
+    <p class="about-tag" data-t="tagline">so you remember the page you were on</p>
+    <p class="about-lead" data-t="lead">A quiet, private reading room for everything you mean to read. Shelve your books, open them on any device, and always land back on the exact page — and line — you left.</p>
+
+    <div class="about-rule rule-orn"><span class="dot">❦</span></div>
+    <div class="smallcaps about-feat-head" data-t="featuresTitle">What’s inside</div>
+    <ul class="about-features">
+      <li><h4 data-t="f1h">Pick up where you left off</h4><p data-t="f1b">Every page turn is saved to your shelf. Switch devices and resume mid-sentence.</p></li>
+      <li><h4 data-t="f2h">More than PDFs</h4><p data-t="f2b">PDFs, EPUBs, CBZ comics, plain text and Markdown, even audiobooks and video — one calm library for all of it, plus notes you write in place.</p></li>
+      <li><h4 data-t="f3h">Yours alone</h4><p data-t="f3b">A single private library behind your sign-in. No feeds, no ads, no one else browsing your shelves.</p></li>
+      <li><h4 data-t="f4h">Works offline</h4><p data-t="f4b">Install it like a native app. Your current books travel with you — on a plane, underground, anywhere.</p></li>
+      <li><h4 data-t="f5h">Highlight and share</h4><p data-t="f5b">Mark a passage or snip a handsome clipping, then share it in a tap.</p></li>
+      <li><h4 data-t="f6h">Made for comfortable reading</h4><p data-t="f6b">Paper, sepia, dark and high-contrast themes, adjustable type, and a distraction-free focus mode.</p></li>
+    </ul>
+
+    <p class="login-note about-contact"><span data-t="contact">Questions or an invite request? Write to</span> <a href="mailto:m@rco.sh">m@rco.sh</a></p>
+    <a class="btn-primary about-back" href="/" data-t="back">Back to the café</a>
+  </article>
+</main>
+
+<script>
+(function () {
+  // Self-contained i18n — mirrors app.ts copy and resolveLocale() so the page
+  // matches the in-app About modal. Keep these strings in sync with the
+  // about.* / menu.about keys in project/app.ts.
+  var DICT = {
+    en: {
+      tagline: 'so you remember the page you were on',
+      lead: 'A quiet, private reading room for everything you mean to read. Shelve your books, open them on any device, and always land back on the exact page — and line — you left.',
+      featuresTitle: 'What’s inside',
+      f1h: 'Pick up where you left off', f1b: 'Every page turn is saved to your shelf. Switch devices and resume mid-sentence.',
+      f2h: 'More than PDFs', f2b: 'PDFs, EPUBs, CBZ comics, plain text and Markdown, even audiobooks and video — one calm library for all of it, plus notes you write in place.',
+      f3h: 'Yours alone', f3b: 'A single private library behind your sign-in. No feeds, no ads, no one else browsing your shelves.',
+      f4h: 'Works offline', f4b: 'Install it like a native app. Your current books travel with you — on a plane, underground, anywhere.',
+      f5h: 'Highlight and share', f5b: 'Mark a passage or snip a handsome clipping, then share it in a tap.',
+      f6h: 'Made for comfortable reading', f6b: 'Paper, sepia, dark and high-contrast themes, adjustable type, and a distraction-free focus mode.',
+      contact: 'Questions or an invite request? Write to',
+      back: 'Back to the café'
+    },
+    'pt-BR': {
+      tagline: 'para você lembrar da página em que parou',
+      lead: 'Uma sala de leitura tranquila e particular para tudo o que você pretende ler. Coloque seus livros na estante, abra-os em qualquer dispositivo e volte sempre exatamente à página — e à linha — em que parou.',
+      featuresTitle: 'O que tem dentro',
+      f1h: 'Continue de onde parou', f1b: 'Cada virada de página é salva na sua estante. Troque de dispositivo e retome no meio da frase.',
+      f2h: 'Muito além de PDFs', f2b: 'PDFs, EPUBs, quadrinhos CBZ, texto puro e Markdown, e até audiolivros e vídeo — uma biblioteca tranquila para tudo isso, além de notas que você escreve ali mesmo.',
+      f3h: 'Só sua', f3b: 'Uma única biblioteca particular protegida pelo seu login. Sem feeds, sem anúncios, ninguém mais folheando suas estantes.',
+      f4h: 'Funciona offline', f4b: 'Instale como um aplicativo nativo. Seus livros atuais viajam com você — no avião, no metrô, em qualquer lugar.',
+      f5h: 'Destaque e compartilhe', f5b: 'Marque um trecho ou recorte um clipe elegante e compartilhe com um toque.',
+      f6h: 'Feito para uma leitura confortável', f6b: 'Temas papel, sépia, escuro e alto contraste, tipografia ajustável e um modo de foco sem distrações.',
+      contact: 'Dúvidas ou um pedido de convite? Escreva para',
+      back: 'Voltar ao café'
+    },
+    es: {
+      tagline: 'para que recuerdes la página en la que estabas',
+      lead: 'Una sala de lectura tranquila y privada para todo lo que quieres leer. Coloca tus libros en la estantería, ábrelos en cualquier dispositivo y vuelve siempre a la página — y a la línea — exacta en la que lo dejaste.',
+      featuresTitle: 'Qué incluye',
+      f1h: 'Retoma donde lo dejaste', f1b: 'Cada cambio de página se guarda en tu estantería. Cambia de dispositivo y continúa a mitad de la frase.',
+      f2h: 'Más que PDFs', f2b: 'PDFs, EPUBs, cómics CBZ, texto plano y Markdown, e incluso audiolibros y vídeo — una biblioteca serena para todo ello, además de notas que escribes en el momento.',
+      f3h: 'Solo tuya', f3b: 'Una única biblioteca privada tras tu inicio de sesión. Sin feeds, sin anuncios, sin nadie más hojeando tus estanterías.',
+      f4h: 'Funciona sin conexión', f4b: 'Instálala como una app nativa. Tus libros actuales viajan contigo — en un avión, en el metro, donde sea.',
+      f5h: 'Subraya y comparte', f5b: 'Marca un pasaje o recorta un bonito fragmento y compártelo con un toque.',
+      f6h: 'Pensada para una lectura cómoda', f6b: 'Temas papel, sepia, oscuro y de alto contraste, tipografía ajustable y un modo de enfoque sin distracciones.',
+      contact: '¿Preguntas o una solicitud de invitación? Escribe a',
+      back: 'Volver al café'
+    }
+  };
+
+  function resolveLocale() {
+    try {
+      var pref = localStorage.getItem('folium.lang') || 'system';
+      if (pref === 'en' || pref === 'pt-BR' || pref === 'es') return pref;
+    } catch (e) {}
+    var tags = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || 'en'];
+    for (var i = 0; i < tags.length; i++) {
+      var l = (tags[i] || '').toLowerCase();
+      if (l.indexOf('pt') === 0) return 'pt-BR';
+      if (l.indexOf('es') === 0) return 'es';
+      if (l.indexOf('en') === 0) return 'en';
+    }
+    return 'en';
+  }
+
+  var locale = resolveLocale();
+  var d = DICT[locale] || DICT.en;
+  document.documentElement.lang = locale;
+  var nodes = document.querySelectorAll('[data-t]');
+  for (var i = 0; i < nodes.length; i++) {
+    var k = nodes[i].getAttribute('data-t');
+    if (d[k]) nodes[i].textContent = d[k];
+  }
+})();
+</script>
+</body>
+</html>
