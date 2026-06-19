@@ -66,6 +66,8 @@ jobs:
         run: |
           B="s3://${{ steps.tf.outputs.site_bucket }}"
           aws s3 cp project/index.html "$B/index.html" --cache-control "no-cache"
+          # key is bare "about" (no extension) so CloudFront serves it at /about; needs explicit text/html
+          aws s3 cp project/about.html "$B/about" --cache-control "max-age=300" --content-type "text/html; charset=utf-8"
           aws s3 cp project/app.js     "$B/app.js"     --cache-control "max-age=300"
           aws s3 cp project/styles.css "$B/styles.css" --cache-control "max-age=300"
           # sw.js must be no-cache: a cached service worker delays every future update by up to 24h
@@ -92,5 +94,5 @@ jobs:
         run: |
           aws cloudfront create-invalidation \
             --distribution-id "${{ steps.tf.outputs.distribution_id }}" \
-            --paths "/" "/index.html" "/app.js" "/styles.css" "/sw.js" "/manifest.webmanifest" \
+            --paths "/" "/index.html" "/about" "/app.js" "/styles.css" "/sw.js" "/manifest.webmanifest" \
               "/favicon.svg" "/favicon-32.png" "/icons/*" "/vendor/*" "/og-image.png" "/robots.txt"
