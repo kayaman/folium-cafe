@@ -417,6 +417,16 @@
 
 <div id="toast"></div>
 
+<!-- ============ PWA INSTALL OFFER ============ -->
+<div id="install-banner" class="hidden" role="dialog" aria-modal="false" aria-labelledby="install-banner-text">
+  <div class="install-crest"><svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M45 13C52 24 46 42 26 49C17 39 24 21 45 13Z"/><path d="M26 49C33 39 39 28 45 13"/><path d="M26 49L21 55"/></svg></div>
+  <p id="install-banner-text" data-i18n="pwa.offer">Add Folium Café to your home screen for faster, offline reading.</p>
+  <div class="install-actions">
+    <button class="mast-btn brass" id="install-accept" data-i18n="pwa.offerCta">Install</button>
+    <button class="mast-btn" id="install-dismiss" data-i18n="pwa.offerDismiss">Not now</button>
+  </div>
+</div>
+
 <script src="app.js"></script>
 </body>
 </html>
