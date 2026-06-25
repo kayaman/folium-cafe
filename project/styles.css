@@ -714,6 +714,11 @@ body{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-ri
 .book .cardmenu{position:absolute;top:6px;right:6px;width:24px;height:24px;border-radius:50%;border:0;
   background:rgba(28,17,10,.55);color:#f3e6cd;cursor:pointer;font-size:16px;line-height:1;display:none;place-items:center;padding:0}
 .book:hover .cardmenu{display:grid}
+/* Stack the top-right cover actions (⋮ at right:6, then share, then details)
+   so they sit in a row instead of overlapping. Notes omit details — the gap is
+   harmless. List rows lay these out in flex flow, so the offsets don't apply. */
+.book .cardmenu[data-share]{right:36px}
+.book .cardmenu[data-details]{right:66px}
 .row .cardmenu{flex:none}
 /* shared modal overlay for the collection picker + link sheet */
 .modal-overlay{position:fixed;inset:0;z-index:56;display:grid;place-items:center;background:rgba(28,17,10,.55);padding:20px}

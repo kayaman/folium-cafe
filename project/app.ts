@@ -323,6 +323,12 @@ const EN = {
   'clip.saved': 'Clipping saved',
   'clip.removed': 'Clipping removed',
   'clip.shareFailed': 'Could not share — downloaded instead',
+  'share.action': 'Share file',
+  'share.preparing': 'Preparing to share…',
+  'share.failed': 'Couldn’t share this file',
+  'share.offline': 'You’re offline — can’t share this file',
+  'share.tooLargeDownloaded': 'File is large — downloaded instead',
+  'share.linkCopied': 'Link copied to clipboard',
   'note.new': 'New note',
   'note.kind': 'Note',
   'note.untitled': 'Untitled note',
@@ -546,6 +552,12 @@ const PT: Record<MsgKey, string> = {
   'clip.saved': 'Recorte salvo',
   'clip.removed': 'Recorte removido',
   'clip.shareFailed': 'Não foi possível compartilhar — baixado em vez disso',
+  'share.action': 'Compartilhar arquivo',
+  'share.preparing': 'Preparando para compartilhar…',
+  'share.failed': 'Não foi possível compartilhar este arquivo',
+  'share.offline': 'Você está offline — não dá para compartilhar este arquivo',
+  'share.tooLargeDownloaded': 'Arquivo grande — baixado em vez disso',
+  'share.linkCopied': 'Link copiado para a área de transferência',
   'note.new': 'Nova nota',
   'note.kind': 'Nota',
   'note.untitled': 'Nota sem título',
@@ -768,6 +780,12 @@ const ES: Record<MsgKey, string> = {
   'clip.saved': 'Recorte guardado',
   'clip.removed': 'Recorte eliminado',
   'clip.shareFailed': 'No se pudo compartir — descargado en su lugar',
+  'share.action': 'Compartir archivo',
+  'share.preparing': 'Preparando para compartir…',
+  'share.failed': 'No se pudo compartir este archivo',
+  'share.offline': 'Estás sin conexión — no se puede compartir este archivo',
+  'share.tooLargeDownloaded': 'Archivo grande — descargado en su lugar',
+  'share.linkCopied': 'Enlace copiado al portapapeles',
   'note.new': 'Nueva nota',
   'note.kind': 'Nota',
   'note.untitled': 'Nota sin título',
@@ -2000,12 +2018,19 @@ const ICON = {
   moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
   sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
   gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+  share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>',
 };
 
 // The card affordance that opens the book-details / AI-enrichment editor. Only
 // real books carry it (notes have no bibliographic metadata).
 function detailsBtn(b: Book): string {
   return `<button class="cardmenu" data-details="${b.id}" title="${t('details.menuItem')}" data-i18n-title="details.menuItem" aria-label="${t('details.menuItem')}" data-i18n-aria="details.menuItem">${ICON.info}</button>`;
+}
+
+// Share affordance: hands the book's file to the OS share sheet. `cls` lets covers
+// (cardmenu) and list rows (del rmenu) reuse the same button.
+function shareBtn(b: Book, cls = 'cardmenu'): string {
+  return `<button class="${cls}" data-share="${b.id}" title="${t('share.action')}" data-i18n-title="share.action" aria-label="${t('share.action')}" data-i18n-aria="share.action">${ICON.share}</button>`;
 }
 
 // MD / TXT corner badge for note covers.
@@ -2037,6 +2062,7 @@ function coverMarkup(b: Book): string {
         <div class="grule"></div>
         <div class="ga">${t('note.kind')}</div>
       </div>` +
+      shareBtn(b) +
       `<button class="cardmenu" data-menu="${b.id}" title="${t('card.menu')}">⋮</button>` +
       `<button class="del" data-del="${b.id}" title="${t('note.delete')}">${ICON.trash}</button></div>`;
   }
@@ -2045,6 +2071,7 @@ function coverMarkup(b: Book): string {
       collectionBadge(b) +
       (b.lastReadAt ? `<span class="pct">${pct(b)}%</span>` : '') +
       detailsBtn(b) +
+      shareBtn(b) +
       `<button class="cardmenu" data-menu="${b.id}" title="${t('card.menu')}">⋮</button>` +
       `<button class="del" data-del="${b.id}" title="${t('lib.remove')}">${ICON.trash}</button></div>`;
   }
@@ -2058,6 +2085,7 @@ function coverMarkup(b: Book): string {
     collectionBadge(b) +
     (b.lastReadAt ? `<span class="pct">${pct(b)}%</span>` : '') +
     detailsBtn(b) +
+    shareBtn(b) +
     `<button class="cardmenu" data-menu="${b.id}" title="${t('card.menu')}">⋮</button>` +
     `<button class="del" data-del="${b.id}" title="${t('lib.remove')}">${ICON.trash}</button></div>`;
 }
@@ -2092,6 +2120,7 @@ function renderList(list: Book[]): string {
         <div class="rprog"></div>
         <div class="rwhen">${relTime(b.lastReadAt)}</div>
         <button class="rresume" data-open="${b.id}">${ICON.note}${t('note.edit')}</button>
+        ${shareBtn(b, 'del rmenu')}
         <button class="del rmenu" data-menu="${b.id}" title="${t('card.menu')}">⋮</button>
         <button class="del rmenu" data-del="${b.id}" title="${t('note.delete')}">${ICON.trash}</button>
       </div>`;
@@ -2106,6 +2135,7 @@ function renderList(list: Book[]): string {
       <div class="rwhen">${relTime(b.lastReadAt)}</div>
       <button class="rresume" data-open="${b.id}">${ICON.play}${b.lastReadAt ? t('lib.resume') : t('lib.read')}</button>
       <button class="del rmenu" data-details="${b.id}" title="${t('details.menuItem')}" data-i18n-title="details.menuItem" aria-label="${t('details.menuItem')}" data-i18n-aria="details.menuItem">${ICON.info}</button>
+      ${shareBtn(b, 'del rmenu')}
       <button class="del rmenu" data-menu="${b.id}" title="${t('card.menu')}">⋮</button>
       <button class="del rmenu" data-del="${b.id}" title="${t('lib.remove')}">${ICON.trash}</button>
     </div>`;
@@ -2470,6 +2500,13 @@ function wireLibrary(): void {
     }
     const det = t.closest('[data-details]') as HTMLElement | null;
     if (det) { e.preventDefault(); e.stopPropagation(); openBookDetails(det.dataset.details!); return; }
+    const share = t.closest('[data-share]') as HTMLElement | null;
+    if (share) {
+      e.preventDefault(); e.stopPropagation();
+      const b = books.find(x => x.id === share.dataset.share!);
+      if (b) shareBook(b);
+      return;
+    }
     const menu = t.closest('[data-menu]') as HTMLElement | null;
     if (menu) { e.preventDefault(); e.stopPropagation(); openCollectionPicker(menu.dataset.menu!); return; }
     const del = t.closest('[data-del]') as HTMLElement | null;
@@ -3761,21 +3798,121 @@ function downloadBlob(blob: Blob, name: string): void {
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
-async function shareOrDownload(blob: Blob, book: Book): Promise<void> {
-  const file = new File([blob], 'folium-clip.png', { type: 'image/png' });
+// Hand a fully-formed File to the OS share sheet, falling back to a download when
+// file-sharing isn't supported (most desktops) or the share fails. Returns what
+// happened so callers can decide whether to toast.
+async function shareFileOrDownload(file: File, meta: { title: string; text?: string }): Promise<'shared' | 'downloaded' | 'aborted'> {
   const nav: any = navigator;
   if (nav.canShare && nav.canShare({ files: [file] })) {
     try {
-      await nav.share({ files: [file], title: book.title, text: '“' + book.title + '” — folium.cafe' });
-      return;
+      await nav.share({ files: [file], title: meta.title, text: meta.text });
+      return 'shared';
     } catch (e: any) {
-      if (e && e.name === 'AbortError') return;   // user dismissed the sheet
-      downloadBlob(blob, 'folium-clip.png');
-      toast(t('clip.shareFailed'));
-      return;
+      if (e && e.name === 'AbortError') return 'aborted';   // user dismissed the sheet
+      downloadBlob(file, file.name);
+      return 'downloaded';
     }
   }
-  downloadBlob(blob, 'folium-clip.png');
+  downloadBlob(file, file.name);   // desktop / unsupported → download fallback
+  return 'downloaded';
+}
+
+// Clip card sharing rides the same primitive (PNG blob → File, bespoke copy).
+async function shareOrDownload(blob: Blob, book: Book): Promise<void> {
+  const file = new File([blob], 'folium-clip.png', { type: 'image/png' });
+  const r = await shareFileOrDownload(file, { title: book.title, text: '“' + book.title + '” — folium.cafe' });
+  if (r === 'downloaded') toast(t('clip.shareFailed'));
+}
+
+// Above this size a media file is downloaded instead of shared: buffering huge
+// bytes risks OOM and the OS share sheet may reject them outright.
+const SHARE_SIZE_LIMIT = 500 * 1024 * 1024;   // 500 MiB
+
+function navShareFiles(): boolean {
+  const nav: any = navigator;
+  return !!(nav.canShare && nav.canShare({ files: [new File([], 'x')] }));
+}
+function shareText(b: Book): string { return '“' + b.title + '” — folium.cafe'; }
+
+// A safe filename with the right extension for the format. Uploads carry a real
+// fileName (reuse its base); notes/linked media don't, so fall back to the title.
+function shareFileName(b: Book, fmt: DocFormat): string {
+  const fromName = (b.fileName && /\.[a-z0-9]+$/i.test(b.fileName)) ? b.fileName : '';
+  let ext: string;
+  if (fmt === 'audio' || fmt === 'video') {
+    ext = (fromName.split('.').pop() || (fmt === 'audio' ? 'mp3' : 'mp4')).toLowerCase();
+  } else {
+    ext = fmt === 'note' ? 'md' : fmt;
+  }
+  const base = fromName ? fromName.replace(/\.[^.]+$/, '') : (b.title || 'folium');
+  const safe = base.replace(/[\/\\:*?"<>|]+/g, ' ').trim().slice(0, 80) || 'folium';
+  return safe + '.' + ext;
+}
+
+// Desktop link fallback for external linked media when Web Share is unavailable.
+async function copyOrOpen(url: string): Promise<void> {
+  try { await navigator.clipboard.writeText(url); toast(t('share.linkCopied')); }
+  catch { window.open(url, '_blank', 'noopener'); }
+}
+
+// Share a book as its underlying file via the OS share sheet. Three shapes:
+// external linked media → share the URL; notes → a .md file from the note body;
+// everything else → the stored bytes (audio/video fetched fresh, since dbGet skips
+// media). Falls back to a download when file-sharing isn't available.
+async function shareBook(book: Book): Promise<void> {
+  const fmt = book.format ?? 'pdf';
+
+  // Linked media (external URL, no stored bytes) → share the link, not a file.
+  if (book.url) {
+    const nav: any = navigator;
+    const data = { title: book.title, text: shareText(book), url: book.url };
+    if (nav.share && (!nav.canShare || nav.canShare(data))) {
+      try { await nav.share(data); return; }
+      catch (e: any) { if (e && e.name === 'AbortError') return; }
+    }
+    await copyOrOpen(book.url);
+    return;
+  }
+
+  // Notes → markdown body as a .md file.
+  if (fmt === 'note') {
+    let body: string;
+    try { body = await dbGetNote(book.id); }
+    catch (e) { if (e instanceof ApiAuthError) throw e; toast(t('share.offline'), { error: true }); return; }
+    const name = shareFileName(book, fmt);
+    const file = new File([body], name, { type: mimeFor('note', name) });
+    await shareFileOrDownload(file, { title: book.title, text: shareText(book) });
+    return;
+  }
+
+  // Stored bytes (pdf/cbz/epub/txt/md) and stored media (audio/video).
+  const isMedia = fmt === 'audio' || fmt === 'video';
+  let buf: ArrayBuffer | null = null;
+  try {
+    if (isMedia) {
+      toast(t('share.preparing'));   // fetching full media bytes can take a moment
+      const url = await presignedUrlFor(book.id);
+      const res = await fetch(url);
+      if (!res.ok) throw new ApiNetworkError('media ' + res.status);
+      buf = await res.arrayBuffer();
+    } else {
+      buf = await dbGet(book.id);   // cache-first, else presigned download
+    }
+  } catch (e) {
+    if (e instanceof ApiAuthError) throw e;
+    toast(t('share.offline'), { error: true });
+    return;
+  }
+  if (!buf) { toast(t('share.failed'), { error: true }); return; }
+
+  const name = shareFileName(book, fmt);
+  const file = new File([buf], name, { type: mimeFor(fmt, book.fileName || name) });
+  if (file.size > SHARE_SIZE_LIMIT && navShareFiles()) {
+    downloadBlob(file, name);
+    toast(t('share.tooLargeDownloaded'));
+    return;
+  }
+  await shareFileOrDownload(file, { title: book.title, text: shareText(book) });
 }
 
 // ---------- clip share sheet ----------
@@ -3834,6 +3971,8 @@ function wireReader(): void {
   el('r-next-s').addEventListener('click', () => go(1));
   el('r-stage').addEventListener('wheel', onReaderWheel, { passive: false });
   el('r-focus').addEventListener('click', toggleZen);
+
+  el('r-share').addEventListener('click', () => { if (reader.book) shareBook(reader.book); });
 
   // --- clippings: snapshot capture + saved-clip taps + share sheet ---
   el('r-snap').addEventListener('click', toggleCapture);
