@@ -459,6 +459,31 @@ button{font-family:inherit;cursor:pointer}
 #toast.show{pointer-events:auto;cursor:pointer}
 #toast.error{background:var(--leather)}
 
+/* PWA install offer banner */
+#install-banner{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(24px);z-index:61;
+  display:flex;align-items:center;gap:14px;max-width:min(560px,calc(100vw - 28px));
+  padding:14px 18px;border-radius:8px;border:1px solid var(--wood-2);
+  background:linear-gradient(180deg,var(--leather-2),var(--leather));color:#f6ead0;
+  box-shadow:var(--shadow-3);opacity:0;pointer-events:none;transition:.25s}
+#install-banner.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto}
+#install-banner.hidden{display:none}
+#install-banner .install-crest{flex:none;width:30px;height:30px;color:var(--brass-hi);opacity:.9}
+#install-banner .install-crest svg{width:100%;height:100%}
+#install-banner p{margin:0;font-size:14px;line-height:1.4;flex:1}
+#install-banner .install-actions{display:flex;gap:8px;flex:none}
+#install-banner .mast-btn{color:#f6ead0;border-color:rgba(246,234,208,.35);background:rgba(0,0,0,.12)}
+#install-banner .mast-btn.brass{color:#2a1a0c}
+@media (max-width:760px){
+  #install-banner{left:14px;right:14px;bottom:14px;transform:translateY(24px);flex-wrap:wrap;max-width:none}
+  #install-banner.show{transform:translateY(0)}
+  #install-banner .install-actions{width:100%}
+  #install-banner .install-actions .mast-btn{flex:1;justify-content:center}
+}
+@supports (bottom: env(safe-area-inset-bottom)){
+  #install-banner{bottom:calc(26px + env(safe-area-inset-bottom))}
+  @media (max-width:760px){#install-banner{bottom:calc(14px + env(safe-area-inset-bottom))}}
+}
+
 @media (max-width:760px){
   .masthead-inner{gap:10px;padding:0 14px}
   .brand .sub{display:none}

@@ -310,6 +310,9 @@ const EN = {
   'time.justNow': 'Just now',
   'pwa.updated': 'Folium Café has been updated',
   'pwa.installed': 'Folium Café is on your home screen',
+  'pwa.offer': 'Add Folium Café to your home screen for faster, offline reading.',
+  'pwa.offerCta': 'Install',
+  'pwa.offerDismiss': 'Not now',
   'clip.snapshot': 'Snapshot and share',
   'clip.captureHint': 'Drag a box over the page — Esc to cancel',
   'clip.highlight': 'Highlight',
@@ -539,6 +542,9 @@ const PT: Record<MsgKey, string> = {
   'time.justNow': 'Agora mesmo',
   'pwa.updated': 'O Folium Café foi atualizado',
   'pwa.installed': 'O Folium Café está na sua tela inicial',
+  'pwa.offer': 'Adicione o Folium Café à tela inicial para uma leitura mais rápida e offline.',
+  'pwa.offerCta': 'Instalar',
+  'pwa.offerDismiss': 'Agora não',
   'clip.snapshot': 'Recortar e compartilhar',
   'clip.captureHint': 'Arraste uma caixa sobre a página — Esc para cancelar',
   'clip.highlight': 'Destacar',
@@ -767,6 +773,9 @@ const ES: Record<MsgKey, string> = {
   'time.justNow': 'Ahora mismo',
   'pwa.updated': 'Folium Café se ha actualizado',
   'pwa.installed': 'Folium Café está en tu pantalla de inicio',
+  'pwa.offer': 'Añade Folium Café a tu pantalla de inicio para una lectura más rápida y sin conexión.',
+  'pwa.offerCta': 'Instalar',
+  'pwa.offerDismiss': 'Ahora no',
   'clip.snapshot': 'Recortar y compartir',
   'clip.captureHint': 'Arrastra un recuadro sobre la página — Esc para cancelar',
   'clip.highlight': 'Resaltar',
@@ -4890,27 +4899,104 @@ function wirePwa(): void {
   });
 
   let deferredInstall: any = null;
+
+  // Proactive install offer + A/B test. We can't show the OS install prompt
+  // whenever we like — it requires the saved `beforeinstallprompt` event — so we
+  // hold onto it and surface a custom banner once the reader has come back. The
+  // experiment splits returning users 50/50 between offering on their 2nd visit
+  // vs their 3rd, to learn which return point converts better.
+  const variant = pwaVariant();
+  const threshold = variant === 'visit2' ? 2 : 3;
+
+  async function runInstallPrompt(source: 'menu' | 'banner'): Promise<void> {
+    if (!deferredInstall) return;
+    deferredInstall.prompt();
+    try {
+      const choice = await deferredInstall.userChoice;
+      track('pwa_install_choice', { variant, source, outcome: choice?.outcome || 'unknown' });
+      if (choice?.outcome === 'accepted') track('pwa_install', { variant, source });
+    } catch { /* dismissed */ }
+    deferredInstall = null;
+    el('btn-install').classList.add('hidden');
+    hideInstallOffer();
+  }
+
+  function maybeOfferInstall(): void {
+    if (!deferredInstall) return;
+    if (window.matchMedia('(display-mode: standalone)').matches) return;
+    if (localStorage.getItem(PWA_PROMPT_DONE)) return;         // already installed or dismissed
+    if (pwaVisits() < threshold) return;                       // not a far enough return visit yet
+    const banner = el('install-banner');
+    if (!banner.classList.contains('hidden')) return;          // already showing
+    banner.classList.remove('hidden');
+    requestAnimationFrame(() => banner.classList.add('show'));
+    track('pwa_prompt_shown', { variant, visit: pwaVisits() });
+  }
+
+  function hideInstallOffer(): void {
+    const banner = el('install-banner');
+    banner.classList.remove('show');
+    banner.classList.add('hidden');
+  }
+
   window.addEventListener('beforeinstallprompt', (e) => {
     if (window.matchMedia('(display-mode: standalone)').matches) return;
     e.preventDefault();
     deferredInstall = e;
     el('btn-install').classList.remove('hidden');
+    maybeOfferInstall();
   });
-  el('btn-install').addEventListener('click', async () => {
-    if (!deferredInstall) return;
-    deferredInstall.prompt();
-    try {
-      const choice = await deferredInstall.userChoice;
-      if (choice?.outcome === 'accepted') track('pwa_install');
-    } catch { /* dismissed */ }
-    deferredInstall = null;
-    el('btn-install').classList.add('hidden');
+
+  el('install-accept').addEventListener('click', () => {
+    localStorage.setItem(PWA_PROMPT_DONE, '1');
+    void runInstallPrompt('banner');
+  });
+  el('install-dismiss').addEventListener('click', () => {
+    localStorage.setItem(PWA_PROMPT_DONE, '1');
+    track('pwa_prompt_dismiss', { variant, visit: pwaVisits() });
+    hideInstallOffer();
+  });
+
+  el('btn-install').addEventListener('click', () => {
     el('dropdown').classList.add('hidden');
+    void runInstallPrompt('menu');
   });
   window.addEventListener('appinstalled', () => {
+    localStorage.setItem(PWA_PROMPT_DONE, '1');
     el('btn-install').classList.add('hidden');
+    hideInstallOffer();
     toast(t('pwa.installed'));
   });
+}
+
+// ---------- PWA install A/B experiment ----------
+const PWA_VISITS = 'folium.pwaVisits';
+const PWA_VARIANT = 'folium.pwaVariant';
+const PWA_PROMPT_DONE = 'folium.pwaPromptDone';
+const PWA_SESSION = 'folium.pwaSession';
+
+// Count one visit per browsing session (a reload inside the same tab/session
+// doesn't inflate the count). Called once at boot, before the prompt is wired.
+function countPwaVisit(): void {
+  try {
+    if (sessionStorage.getItem(PWA_SESSION)) return;
+    sessionStorage.setItem(PWA_SESSION, '1');
+    localStorage.setItem(PWA_VISITS, String(pwaVisits() + 1));
+  } catch { /* storage unavailable — feature simply stays off */ }
+}
+
+function pwaVisits(): number {
+  const n = parseInt(localStorage.getItem(PWA_VISITS) || '0', 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+// Sticky 50/50 assignment, decided on first contact and kept for the user.
+function pwaVariant(): 'visit2' | 'visit3' {
+  const stored = localStorage.getItem(PWA_VARIANT);
+  if (stored === 'visit2' || stored === 'visit3') return stored;
+  const v: 'visit2' | 'visit3' = Math.random() < 0.5 ? 'visit2' : 'visit3';
+  try { localStorage.setItem(PWA_VARIANT, v); } catch { /* ignore */ }
+  return v;
 }
 
 function migrateLocalStorage(): void {
@@ -5001,6 +5087,7 @@ function init(): void {
   wireBookDetails();
   wireLinkSheet();
   wireReader();
+  countPwaVisit();   // must run before wirePwa reads the visit count
   wirePwa();
   wireLaunchQueue();
   // restore session
