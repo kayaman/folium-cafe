@@ -3500,6 +3500,45 @@ function onReaderWheel(e: WheelEvent): void {
   if (down && reader.page < reader.book.numPages) { reader.wheelLock = e.timeStamp; go(1); }
   else if (up && reader.page > 1) { reader.wheelLock = e.timeStamp; go(-1); }
 }
+// Touch equivalent of the wheel's edge-aware paging: on a phone the page scrolls
+// natively, and a flick that starts already at the top/bottom edge turns the
+// page. We capture the edge state at touchstart so the same swipe that scrolls
+// you to the bottom doesn't also flip — you must already be at the edge, then
+// swipe again (mirrors the wheel UX). A short page with nothing to scroll is
+// both edges at once, so a single swipe turns it.
+let touchStartY = 0;
+let touchAtTop = false;
+let touchAtBottom = false;
+let touchTracking = false;
+function onReaderTouchStart(e: TouchEvent): void {
+  touchTracking = false;
+  if (!reader.adapter || reader.adapter.mode !== 'canvas') return;
+  if (reader.capturing || e.touches.length !== 1) return;   // ignore pinch / capture
+  const stage = el('r-stage');
+  touchStartY = e.touches[0].clientY;
+  touchAtTop = stage.scrollTop <= 1;
+  touchAtBottom = stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 1;
+  touchTracking = true;
+}
+function onReaderTouchEnd(e: TouchEvent): void {
+  if (!touchTracking || !reader.book) return;
+  touchTracking = false;
+  const touch = e.changedTouches[0];
+  if (!touch) return;
+  const dy = touchStartY - touch.clientY;   // >0: swiped up (advance), <0: swiped down (back)
+  const THRESHOLD = 60;                      // px, ignore taps and tiny drags
+  if (Math.abs(dy) < THRESHOLD) return;
+  const stage = el('r-stage');
+  const atTop = stage.scrollTop <= 1;
+  const atBottom = stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 1;
+  if (e.timeStamp - reader.wheelLock < 500) return;
+  if (dy > 0 && touchAtBottom && atBottom && reader.page < reader.book.numPages) {
+    reader.wheelLock = e.timeStamp; go(1);
+  } else if (dy < 0 && touchAtTop && atTop && reader.page > 1) {
+    reader.wheelLock = e.timeStamp; go(-1);
+  }
+}
+
 function setWidthButtons(): void {
   document.querySelectorAll('#width-seg button').forEach(btn => {
     btn.classList.toggle('active', (btn as HTMLElement).dataset.w === reader.width);
@@ -3842,6 +3881,8 @@ function wireReader(): void {
   el('r-prev-s').addEventListener('click', () => go(-1));
   el('r-next-s').addEventListener('click', () => go(1));
   el('r-stage').addEventListener('wheel', onReaderWheel, { passive: false });
+  el('r-stage').addEventListener('touchstart', onReaderTouchStart, { passive: true });
+  el('r-stage').addEventListener('touchend', onReaderTouchEnd, { passive: true });
   el('r-focus').addEventListener('click', toggleZen);
 
   // --- clippings: snapshot capture + saved-clip taps + share sheet ---
@@ -4035,8 +4076,19 @@ function wireReader(): void {
     }
     if (paged && (k === 'ArrowRight' || k === 'PageDown' || k === ' ')) { e.preventDefault(); go(1); }
     else if (paged && (k === 'ArrowLeft' || k === 'PageUp')) { e.preventDefault(); go(-1); }
-    else if (paged && k === 'ArrowDown') { el('r-stage').scrollTop += 120; }
-    else if (paged && k === 'ArrowUp') { el('r-stage').scrollTop -= 120; }
+    else if (paged && k === 'ArrowDown') {
+      // Scroll within a tall page; once at the bottom edge, flip to the next page.
+      const stage = el('r-stage');
+      const atBottom = stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 1;
+      if (atBottom && reader.book && reader.page < reader.book.numPages) { e.preventDefault(); go(1); }
+      else stage.scrollTop += 120;
+    }
+    else if (paged && k === 'ArrowUp') {
+      const stage = el('r-stage');
+      const atTop = stage.scrollTop <= 1;
+      if (atTop && reader.page > 1) { e.preventDefault(); go(-1); }
+      else stage.scrollTop -= 120;
+    }
     else if (paged && k === 'Home') { e.preventDefault(); renderAt({ page: 1 }, false); }
     else if (paged && k === 'End' && reader.book) { e.preventDefault(); renderAt({ page: reader.book.numPages }, false); }
     else if (k === 'f' || k === 'F') { toggleZen(); }
