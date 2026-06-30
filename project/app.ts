@@ -3537,42 +3537,105 @@ function onReaderWheel(e: WheelEvent): void {
   if (down && reader.page < reader.book.numPages) { reader.wheelLock = e.timeStamp; go(1); }
   else if (up && reader.page > 1) { reader.wheelLock = e.timeStamp; go(-1); }
 }
-// Touch equivalent of the wheel's edge-aware paging: on a phone the page scrolls
-// natively, and a flick that starts already at the top/bottom edge turns the
-// page. We capture the edge state at touchstart so the same swipe that scrolls
-// you to the bottom doesn't also flip — you must already be at the edge, then
-// swipe again (mirrors the wheel UX). A short page with nothing to scroll is
-// both edges at once, so a single swipe turns it.
+// Touch navigation. A gesture is classified at touchend in priority order:
+//   1. two-finger tap        -> back        (the touch analog of right-click)
+//   2. horizontal swipe      -> left=next, right=prev
+//   3. vertical edge swipe   -> the wheel's edge-aware paging (canvas only)
+//   4. single/double tap     -> single=forward, double=back
+// Single tap (forward) is deferred by one double-tap window so a following tap
+// can be recognised as a double tap (back) instead — the cost of mapping both
+// onto the same finger. Edge state is captured at touchstart so the swipe that
+// scrolls you to the bottom doesn't also flip; a short page with nothing to
+// scroll is both edges at once, so a single edge swipe turns it.
+const SWIPE_PX = 60;        // min travel for a swipe
+const TAP_PX = 10;          // max travel still counted as a tap
+const DOUBLE_TAP_MS = 250;  // window to pair two taps into a double tap
+let touchStartX = 0;
 let touchStartY = 0;
+let touchMaxTouches = 1;
 let touchAtTop = false;
 let touchAtBottom = false;
 let touchTracking = false;
+let tapTimer: any = 0;
+let tapCount = 0;
+function cancelPendingTap(): void { window.clearTimeout(tapTimer); tapCount = 0; }
+function onTap(): void {
+  tapCount++;
+  if (tapCount === 1) {
+    tapTimer = window.setTimeout(() => {
+      tapCount = 0;
+      reader.wheelLock = performance.now();
+      go(1);   // single tap -> forward
+    }, DOUBLE_TAP_MS);
+  } else {
+    cancelPendingTap();
+    reader.wheelLock = performance.now();
+    go(-1);    // double tap -> back
+  }
+}
 function onReaderTouchStart(e: TouchEvent): void {
-  touchTracking = false;
-  if (!reader.adapter || reader.adapter.mode !== 'canvas') return;
-  if (reader.capturing || e.touches.length !== 1) return;   // ignore pinch / capture
-  const stage = el('r-stage');
-  touchStartY = e.touches[0].clientY;
-  touchAtTop = stage.scrollTop <= 1;
-  touchAtBottom = stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 1;
-  touchTracking = true;
+  if (!reader.adapter || !reader.book || reader.capturing) { touchTracking = false; return; }
+  if (e.touches.length === 1) {
+    const t = e.touches[0];
+    touchStartX = t.clientX;
+    touchStartY = t.clientY;
+    touchMaxTouches = 1;
+    const stage = el('r-stage');
+    touchAtTop = stage.scrollTop <= 1;
+    touchAtBottom = stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 1;
+    touchTracking = true;
+  } else {
+    touchMaxTouches = Math.max(touchMaxTouches, e.touches.length);
+  }
 }
 function onReaderTouchEnd(e: TouchEvent): void {
   if (!touchTracking || !reader.book) return;
+  if (e.touches.length > 0) return;   // wait until every finger has lifted
   touchTracking = false;
   const touch = e.changedTouches[0];
   if (!touch) return;
-  const dy = touchStartY - touch.clientY;   // >0: swiped up (advance), <0: swiped down (back)
-  const THRESHOLD = 60;                      // px, ignore taps and tiny drags
-  if (Math.abs(dy) < THRESHOLD) return;
-  const stage = el('r-stage');
-  const atTop = stage.scrollTop <= 1;
-  const atBottom = stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 1;
-  if (e.timeStamp - reader.wheelLock < 500) return;
-  if (dy > 0 && touchAtBottom && atBottom && reader.page < reader.book.numPages) {
-    reader.wheelLock = e.timeStamp; go(1);
-  } else if (dy < 0 && touchAtTop && atTop && reader.page > 1) {
-    reader.wheelLock = e.timeStamp; go(-1);
+  const dx = touch.clientX - touchStartX;       // >0: moved right
+  const dyUp = touchStartY - touch.clientY;      // >0: swiped up (advance)
+  const adx = Math.abs(dx), ady = Math.abs(dyUp);
+  const onCooldown = e.timeStamp - reader.wheelLock < 500;
+
+  // 1. Two-finger tap -> back. Multi-touch gestures never fall through to swipe
+  // or tap-forward, so a pinch can't misfire as a page turn.
+  if (touchMaxTouches >= 2) {
+    cancelPendingTap();
+    if (adx < TAP_PX && ady < TAP_PX && !onCooldown) { reader.wheelLock = e.timeStamp; go(-1); }
+    return;
+  }
+
+  // 2. Horizontal swipe -> left=next, right=prev (works regardless of scroll).
+  if (adx >= SWIPE_PX && adx > ady) {
+    cancelPendingTap();
+    if (onCooldown) return;
+    reader.wheelLock = e.timeStamp;
+    go(dx < 0 ? 1 : -1);
+    return;
+  }
+
+  // 3. Vertical edge swipe -> the wheel's edge-aware paging (canvas formats).
+  if (ady >= SWIPE_PX && reader.adapter && reader.adapter.mode === 'canvas') {
+    cancelPendingTap();
+    if (onCooldown) return;
+    const stage = el('r-stage');
+    const atTop = stage.scrollTop <= 1;
+    const atBottom = stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 1;
+    if (dyUp > 0 && touchAtBottom && atBottom && reader.page < reader.book.numPages) {
+      reader.wheelLock = e.timeStamp; go(1);
+    } else if (dyUp < 0 && touchAtTop && atTop && reader.page > 1) {
+      reader.wheelLock = e.timeStamp; go(-1);
+    }
+    return;
+  }
+
+  // 4. Tap (negligible travel) -> single=forward / double=back.
+  if (adx < TAP_PX && ady < TAP_PX) {
+    if (reader.capturing) return;
+    if (window.getSelection && String(window.getSelection())) return;
+    onTap();
   }
 }
 
@@ -4029,8 +4092,10 @@ function wireReader(): void {
 
   let capStart: { x: number; y: number } | null = null;
   let suppressClick = false;
+  let lastPointerWasTouch = false;   // route clicks: mouse pages here, touch via touch events
   const stageEl = el('r-stage');
   stageEl.addEventListener('pointerdown', (e) => {
+    lastPointerWasTouch = e.pointerType === 'touch';
     if (!reader.capturing) return;
     e.preventDefault();
     capStart = { x: e.clientX, y: e.clientY };
@@ -4165,15 +4230,21 @@ function wireReader(): void {
 
   // mouse reveal in zen
   el('reader').addEventListener('mousemove', peek);
-  el('r-stage').addEventListener('click', (e) => {
-    // click left/right thirds to page (only when not selecting text or capturing)
+  // Mouse: left-click anywhere pages forward, right-click pages back. Touch is
+  // handled by the touch gesture handlers, so ignore the click it synthesises.
+  el('r-stage').addEventListener('click', () => {
+    if (lastPointerWasTouch) return;
     if (reader.capturing) return;
     if (suppressClick) { suppressClick = false; return; }
     if (window.getSelection && String(window.getSelection())) return;
-    const x = (e as MouseEvent).clientX;
-    const w = window.innerWidth;
-    if (x < w * 0.32) go(-1);
-    else if (x > w * 0.68) go(1);
+    go(1);
+  });
+  el('r-stage').addEventListener('contextmenu', (e) => {
+    if (lastPointerWasTouch) return;                 // leave touch long-press alone
+    if (reader.capturing) return;
+    if (window.getSelection && String(window.getSelection())) return;  // allow copy menu on a selection
+    e.preventDefault();
+    go(-1);
   });
 
   // Click the reader progress bar to seek (paged formats only; reflow/scroll/
