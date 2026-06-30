@@ -166,6 +166,7 @@ interface Book {
   language?: string;
   series?: string;
   description?: string;
+  goodreadsUrl?: string;      // Goodreads book link (Open Library match or manual paste)
 }
 // A user-defined grouping of books. Membership lives on each Book.collections.
 type Collection = { id: string; name: string; createdAt: number };
@@ -413,6 +414,21 @@ const EN = {
   'details.aiOffline': 'You’re offline — try again when online',
   'details.saved': 'Details saved',
   'details.menuItem': 'Details',
+  'goodreads.section': 'Find online',
+  'goodreads.find': 'Search Open Library',
+  'goodreads.searching': 'Searching…',
+  'goodreads.needTitle': 'Enter a title or ISBN first',
+  'goodreads.noMatches': 'No matches found',
+  'goodreads.resultsLabel': 'Search results',
+  'goodreads.pick': 'Use this',
+  'goodreads.applied': 'Filled from the match',
+  'goodreads.noLink': 'No Goodreads link for this match',
+  'goodreads.urlLabel': 'Goodreads URL',
+  'goodreads.urlPh': 'https://www.goodreads.com/book/show/…',
+  'goodreads.view': 'View on Goodreads',
+  'goodreads.badUrl': 'Enter a valid Goodreads URL',
+  'goodreads.offline': 'You’re offline — try again when online',
+  'goodreads.error': 'Could not search right now',
   'menu.about': 'About',
   'about.tagline': 'so you remember the page you were on',
   'about.lead': 'A quiet, private reading room for everything you mean to read. Shelve your books, open them on any device, and always land back on the exact page — and line — you left.',
@@ -645,6 +661,21 @@ const PT: Record<MsgKey, string> = {
   'details.aiOffline': 'Você está offline — tente novamente quando estiver online',
   'details.saved': 'Detalhes salvos',
   'details.menuItem': 'Detalhes',
+  'goodreads.section': 'Buscar online',
+  'goodreads.find': 'Buscar na Open Library',
+  'goodreads.searching': 'Buscando…',
+  'goodreads.needTitle': 'Informe um título ou ISBN primeiro',
+  'goodreads.noMatches': 'Nenhuma correspondência encontrada',
+  'goodreads.resultsLabel': 'Resultados da busca',
+  'goodreads.pick': 'Usar este',
+  'goodreads.applied': 'Preenchido a partir da correspondência',
+  'goodreads.noLink': 'Sem link do Goodreads para esta correspondência',
+  'goodreads.urlLabel': 'URL do Goodreads',
+  'goodreads.urlPh': 'https://www.goodreads.com/book/show/…',
+  'goodreads.view': 'Ver no Goodreads',
+  'goodreads.badUrl': 'Informe uma URL válida do Goodreads',
+  'goodreads.offline': 'Você está offline — tente novamente quando estiver online',
+  'goodreads.error': 'Não foi possível buscar agora',
   'menu.about': 'Sobre',
   'about.tagline': 'para você lembrar da página em que parou',
   'about.lead': 'Uma sala de leitura tranquila e particular para tudo o que você pretende ler. Coloque seus livros na estante, abra-os em qualquer dispositivo e volte sempre exatamente à página — e à linha — em que parou.',
@@ -876,6 +907,21 @@ const ES: Record<MsgKey, string> = {
   'details.aiOffline': 'Estás sin conexión — inténtalo de nuevo cuando estés en línea',
   'details.saved': 'Detalles guardados',
   'details.menuItem': 'Detalles',
+  'goodreads.section': 'Buscar en línea',
+  'goodreads.find': 'Buscar en Open Library',
+  'goodreads.searching': 'Buscando…',
+  'goodreads.needTitle': 'Escribe un título o ISBN primero',
+  'goodreads.noMatches': 'No se encontraron coincidencias',
+  'goodreads.resultsLabel': 'Resultados de la búsqueda',
+  'goodreads.pick': 'Usar este',
+  'goodreads.applied': 'Rellenado desde la coincidencia',
+  'goodreads.noLink': 'Sin enlace de Goodreads para esta coincidencia',
+  'goodreads.urlLabel': 'URL de Goodreads',
+  'goodreads.urlPh': 'https://www.goodreads.com/book/show/…',
+  'goodreads.view': 'Ver en Goodreads',
+  'goodreads.badUrl': 'Escribe una URL válida de Goodreads',
+  'goodreads.offline': 'Estás sin conexión — inténtalo de nuevo cuando estés en línea',
+  'goodreads.error': 'No se pudo buscar ahora',
   'menu.about': 'Acerca de',
   'about.tagline': 'para que recuerdes la página en la que estabas',
   'about.lead': 'Una sala de lectura tranquila y privada para todo lo que quieres leer. Coloca tus libros en la estantería, ábrelos en cualquier dispositivo y vuelve siempre a la página — y a la línea — exacta en la que lo dejaste.',
@@ -2398,9 +2444,14 @@ function openBookDetails(id: string): void {
   bdInput('isbn').value = b.isbn || '';
   bdInput('language').value = b.language || '';
   bdInput('description').value = b.description || '';
+  bdInput('goodreads').value = b.goodreadsUrl || '';
   el('bd-f-collection').innerHTML = collections.length
     ? collectionChecklist(b.collections || [])
     : `<p class="coll-none">${t('coll.none')}</p>`;
+  bdCandidates = [];
+  el('bd-gr-results').innerHTML = '';
+  el('bd-gr-status').textContent = '';
+  bdUpdateGoodreadsView();
   const modal = el('book-details');
   modal.classList.remove('hidden');
   (modal as any)._untrap = trapFocus(modal, bdInput('title'));
@@ -2443,6 +2494,92 @@ async function fillBookDetailsAI(): Promise<void> {
     btn.disabled = false;
   }
 }
+// Open Library lookup → Goodreads link. A candidate carries normalized metadata
+// plus a derived Goodreads link (id link when known, else a Goodreads search URL).
+interface Candidate {
+  title?: string; authors: string[]; year?: number; isbn?: string;
+  coverUrl: string | null; goodreadsUrl: string | null; searchUrl: string | null;
+}
+let bdCandidates: Candidate[] = [];
+
+// Accept only an https goodreads.com URL — matches the backend's PATCH guard so
+// the user gets immediate feedback instead of a 400 round-trip.
+function isGoodreadsUrl(s: string): boolean {
+  try {
+    const u = new URL(s);
+    return u.protocol === 'https:' && (u.host === 'goodreads.com' || u.host === 'www.goodreads.com');
+  } catch { return false; }
+}
+
+// Toggle the "View on Goodreads" anchor from the current URL field value.
+function bdUpdateGoodreadsView(): void {
+  const url = bdInput('goodreads').value.trim();
+  const a = el<HTMLAnchorElement>('bd-gr-view');
+  if (url) { a.href = url; a.classList.remove('hidden'); }
+  else { a.removeAttribute('href'); a.classList.add('hidden'); }
+}
+
+// Render Open Library candidates into the picker. All text is external/untrusted
+// → escaped. Rows whose match carries no Goodreads id get a subtle hint.
+function renderCandidates(cands: Candidate[]): void {
+  const list = el('bd-gr-results');
+  list.innerHTML = cands.map((c, i) => {
+    const title = escapeHtml(c.title || t('lib.unknown'));
+    const meta = [c.authors.join(', '), c.year != null ? String(c.year) : ''].filter(Boolean).join(' · ');
+    const thumb = c.coverUrl
+      ? `<img class="bd-gr-thumb" src="${escapeHtml(c.coverUrl)}" alt="" loading="lazy">`
+      : `<span class="bd-gr-thumb bd-gr-thumb-none" aria-hidden="true"></span>`;
+    const hint = c.goodreadsUrl ? '' : `<span class="bd-gr-nolink">${escapeHtml(t('goodreads.noLink'))}</span>`;
+    return `<li class="bd-gr-cand" role="option" data-cand-idx="${i}" tabindex="0">`
+      + thumb
+      + `<div class="bd-gr-meta"><div class="bd-gr-t">${title}</div>`
+      + `<div class="bd-gr-a">${escapeHtml(meta)}</div>${hint}</div>`
+      + `<button class="mast-btn bd-gr-pick" data-cand-idx="${i}" data-i18n="goodreads.pick">${escapeHtml(t('goodreads.pick'))}</button>`
+      + `</li>`;
+  }).join('');
+}
+
+// Fill empty metadata inputs from a chosen candidate (non-destructive, mirroring
+// the AI fill), and set the Goodreads link (id link, else search fallback).
+function applyCandidate(c: Candidate): void {
+  const set = (f: string, val: string) => { const inp = bdInput(f); if (!inp.value.trim() && val) inp.value = val; };
+  set('title', c.title || '');
+  set('authors', c.authors.join(', '));
+  set('year', c.year != null ? String(c.year) : '');
+  set('isbn', c.isbn || '');
+  const grInput = bdInput('goodreads');
+  const link = c.goodreadsUrl || c.searchUrl || '';
+  if (!grInput.value.trim() && link) grInput.value = link;
+  bdUpdateGoodreadsView();
+  toast(t('goodreads.applied'));
+}
+
+// Search Open Library using the current modal inputs (title/authors/isbn) so an
+// edited-but-unsaved title is used. Analogue of fillBookDetailsAI.
+async function searchOnlineMeta(): Promise<void> {
+  if (!detailsBookId) return;
+  const btn = el<HTMLButtonElement>('bd-gr-search');
+  const status = el('bd-gr-status');
+  const title = bdInput('title').value.trim();
+  const author = bdInput('authors').value.split(/[,;]/)[0]?.trim() || '';
+  const isbn = bdInput('isbn').value.trim();
+  if (!title && !isbn) { status.textContent = t('goodreads.needTitle'); return; }
+  btn.disabled = true;
+  status.textContent = t('goodreads.searching');
+  try {
+    const res = await api('/booklookup', { method: 'POST', body: JSON.stringify({ title, author, isbn }) });
+    const { candidates } = await res.json();
+    bdCandidates = Array.isArray(candidates) ? candidates : [];
+    if (!bdCandidates.length) { status.textContent = t('goodreads.noMatches'); el('bd-gr-results').innerHTML = ''; }
+    else { status.textContent = ''; renderCandidates(bdCandidates); }
+  } catch (e) {
+    if (e instanceof ApiNetworkError) status.textContent = t('goodreads.offline');
+    else status.textContent = t('goodreads.error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function saveBookDetails(): Promise<void> {
   if (!detailsBookId) return;
   const id = detailsBookId;
@@ -2463,8 +2600,13 @@ async function saveBookDetails(): Promise<void> {
     language: str('language'),
     description: str('description'),
     collections: cids,
+    goodreadsUrl: str('goodreads'),
   };
   if (!Number.isNaN(year)) fields.year = year;
+  if (fields.goodreadsUrl && !isGoodreadsUrl(fields.goodreadsUrl)) {
+    toast(t('goodreads.badUrl'));
+    return;
+  }
   try {
     const res = await api('/books/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify(fields) });
     if (!res.ok) throw new Error('patch failed');
@@ -2482,6 +2624,20 @@ function wireBookDetails(): void {
   el('bd-save').addEventListener('click', saveBookDetails);
   el('bd-cancel').addEventListener('click', closeBookDetails);
   el('bd-ai').addEventListener('click', fillBookDetailsAI);
+  el('bd-gr-search').addEventListener('click', searchOnlineMeta);
+  el('bd-f-goodreads').addEventListener('input', bdUpdateGoodreadsView);
+  const pickFromEvent = (e: Event) => {
+    const hit = (e.target as HTMLElement).closest('[data-cand-idx]') as HTMLElement | null;
+    if (!hit) return;
+    e.preventDefault();
+    const c = bdCandidates[Number(hit.dataset.candIdx)];
+    if (c) applyCandidate(c);
+  };
+  el('bd-gr-results').addEventListener('click', pickFromEvent);
+  el('bd-gr-results').addEventListener('keydown', (e) => {
+    const k = (e as KeyboardEvent).key;
+    if (k === 'Enter' || k === ' ') pickFromEvent(e);
+  });
   el('book-details').addEventListener('click', (e) => { if (e.target === el('book-details')) closeBookDetails(); });
   document.addEventListener('keydown', (e) => {
     if ((e as KeyboardEvent).key === 'Escape' && !el('book-details').classList.contains('hidden')) closeBookDetails();

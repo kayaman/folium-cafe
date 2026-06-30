@@ -292,6 +292,17 @@
     <div class="field"><label data-i18n="details.fLanguage">Language</label><input id="bd-f-language" type="text"></div>
     <div class="field"><label data-i18n="details.fDescription">Description</label><textarea id="bd-f-description" rows="4"></textarea></div>
     <div class="field"><label data-i18n="details.fCollection">Collections</label><div id="bd-f-collection" class="coll-checklist"></div></div>
+    <div class="field bd-goodreads">
+      <label data-i18n="goodreads.section">Find online</label>
+      <div class="bd-gr-search">
+        <button class="mast-btn" id="bd-gr-search" data-i18n="goodreads.find">Search Open Library</button>
+        <span id="bd-gr-status" class="bd-gr-status" role="status" aria-live="polite"></span>
+      </div>
+      <ul id="bd-gr-results" class="bd-gr-results" role="listbox" data-i18n-aria="goodreads.resultsLabel"></ul>
+      <label for="bd-f-goodreads" data-i18n="goodreads.urlLabel">Goodreads URL</label>
+      <input id="bd-f-goodreads" type="url" inputmode="url" data-i18n-placeholder="goodreads.urlPh" placeholder="https://www.goodreads.com/book/show/…">
+      <a id="bd-gr-view" class="mast-btn brass bd-gr-view hidden" target="_blank" rel="noopener noreferrer" data-i18n="goodreads.view">View on Goodreads</a>
+    </div>
     <div class="coll-picker-actions">
       <button class="mast-btn" id="bd-ai" data-i18n="details.fillAI">Fill with AI</button>
       <button class="mast-btn" id="bd-cancel" data-i18n="confirm.cancel">Cancel</button>
