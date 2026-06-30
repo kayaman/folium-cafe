@@ -424,6 +424,62 @@ test('POST /api/enrich returns 502 when extraction throws', async (t) => {
   assert.equal(res.statusCode, 502);
 });
 
+// ===== booklookup (Open Library) =====
+test('POST /api/booklookup returns mapped candidates on success', async (t) => {
+  authn(t); mockDdb(t);
+  t.mock.method(globalThis, 'fetch', async () => ({
+    ok: true, status: 200,
+    json: async () => ({ docs: [{ title: 'Dune', author_name: ['Frank Herbert'], id_goodreads: ['234225'] }] }),
+  }));
+  const res = await handler(event('POST', '/api/booklookup', { ...AUTHED, body: { title: 'Dune' } }));
+  assert.equal(res.statusCode, 200);
+  const { candidates } = JSON.parse(res.body);
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].title, 'Dune');
+  assert.equal(candidates[0].goodreadsUrl, 'https://www.goodreads.com/book/show/234225');
+});
+
+test('POST /api/booklookup rejects an empty query with 400 (no fetch)', async (t) => {
+  authn(t); mockDdb(t);
+  let called = false;
+  t.mock.method(globalThis, 'fetch', async () => { called = true; return { ok: true, json: async () => ({}) }; });
+  const res = await handler(event('POST', '/api/booklookup', { ...AUTHED, body: {} }));
+  assert.equal(res.statusCode, 400);
+  assert.equal(called, false);
+});
+
+test('POST /api/booklookup returns 502 when Open Library fails', async (t) => {
+  authn(t); mockDdb(t);
+  t.mock.method(globalThis, 'fetch', async () => { throw new Error('OL down'); });
+  const res = await handler(event('POST', '/api/booklookup', { ...AUTHED, body: { title: 'x' } }));
+  assert.equal(res.statusCode, 502);
+});
+
+test('POST /api/booklookup requires a session', async (t) => {
+  mockDdb(t); // no authn → verifier returns undefined
+  const res = await handler(event('POST', '/api/booklookup', { ...AUTHED, body: { title: 'x' } }));
+  assert.equal(res.statusCode, 401);
+});
+
+// ===== PATCH goodreadsUrl validation =====
+test('PATCH /api/books/{id} rejects a non-goodreads goodreadsUrl', async (t) => {
+  authn(t);
+  let updated = false;
+  mockDdb(t, { UpdateCommand: () => { updated = true; return {}; } });
+  const res = await handler(event('PATCH', '/api/books/b1', { ...AUTHED, body: { goodreadsUrl: 'https://evil.example/x' } }));
+  assert.equal(res.statusCode, 400);
+  assert.equal(updated, false);
+});
+
+test('PATCH /api/books/{id} accepts an https goodreads.com URL', async (t) => {
+  authn(t);
+  let setUrl = null;
+  mockDdb(t, { UpdateCommand: (cmd) => { setUrl = cmd.input.ExpressionAttributeValues[':goodreadsUrl']; return {}; } });
+  const res = await handler(event('PATCH', '/api/books/b1', { ...AUTHED, body: { goodreadsUrl: 'https://www.goodreads.com/book/show/9' } }));
+  assert.equal(res.statusCode, 200);
+  assert.equal(setUrl, 'https://www.goodreads.com/book/show/9');
+});
+
 // ===== collection delete eagerly strips the id from referencing items =====
 test('DELETE /api/collections/{id} strips the id from items that reference it', async (t) => {
   authn(t);

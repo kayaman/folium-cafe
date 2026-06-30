@@ -4,6 +4,7 @@ import { parseCookies, authCookies, refreshedCookie, clearedCookies, AT_COOKIE, 
 import { makeRateLimiter, LIMITS } from './ratelimit.mjs';
 import * as repo from './repo.mjs';
 import { extractMetadata } from './bedrock.mjs';
+import { searchBooks } from './openlibrary.mjs';
 
 // Lazily constructed so importing this module for its pure helpers (the unit
 // tests do this) never touches Cognito config / env vars. makeVerifier throws
@@ -50,6 +51,17 @@ export function parseProgressBody(body) {
 // Pure, unit-testable: true only for an https:// URL.
 export function isHttpsUrl(s) {
   try { return new URL(s).protocol === 'https:'; } catch { return false; }
+}
+
+// Pure, unit-testable: true only for an https Goodreads URL. Guards the stored
+// goodreadsUrl that the UI later renders as an <a href> — host-allowlisted so a
+// pasted javascript:/data: or off-site URL can never be persisted.
+const GOODREADS_HOSTS = new Set(['goodreads.com', 'www.goodreads.com']);
+export function isGoodreadsUrl(s) {
+  try {
+    const u = new URL(s);
+    return u.protocol === 'https:' && GOODREADS_HOSTS.has(u.host);
+  } catch { return false; }
 }
 
 // Resolve the caller from the access-token cookie. If the access token is
@@ -264,6 +276,25 @@ export async function handler(event) {
       }
     }
 
+    // --- Open Library book lookup (no persistence) ---
+    if (method === 'POST' && path === '/api/booklookup') {
+      const hasIsbn = typeof body.isbn === 'string' && body.isbn.trim() !== '';
+      const hasTitle = typeof body.title === 'string' && body.title.trim() !== '';
+      if (!hasIsbn && !hasTitle) return ok(json(400, { error: 'no query' }));
+      try {
+        const candidates = await searchBooks({
+          isbn: body.isbn,
+          title: body.title,
+          author: body.author,
+          limit: body.limit,
+        });
+        return ok(json(200, { candidates }));
+      } catch (err) {
+        console.error('booklookup error', err);
+        return ok(json(502, { error: 'lookup failed' }));
+      }
+    }
+
     const m = path.match(/^\/api\/books\/([^/]+)(\/url|\/progress|\/collections|\/finalize)?$/);
     if (m) {
       const id = decodeURIComponent(m[1]);
@@ -313,6 +344,11 @@ export async function handler(event) {
       }
       if (method === 'PATCH' && !sub) {
         // Allowlisted metadata patch (repo.updateBookMeta drops unknown keys).
+        // goodreadsUrl is rendered as a link, so validate it here: empty string
+        // clears the link; otherwise it must be an https goodreads.com URL.
+        if (body.goodreadsUrl != null && body.goodreadsUrl !== '' && !isGoodreadsUrl(body.goodreadsUrl)) {
+          return ok(json(400, { error: 'goodreadsUrl must be an https goodreads.com URL' }));
+        }
         try {
           await repo.updateBookMeta(userId, id, body);
         } catch (err) {
