@@ -3,6 +3,7 @@
    ============================================================ */
 
 import { mediaFormatForUrl, AUDIO_EXT, VIDEO_EXT } from './share-routing.mjs';
+import { grayscalePixels, isPrintShortcut, printRenderScale, resolvePrintPages } from './print-support.mjs';
 
 // File Handling API (open-with). Minimal ambient types — the import above makes
 // this file a module, so the interfaces are wrapped in `declare global` to keep
@@ -100,6 +101,7 @@ interface DocCaps {
   timeMedia: boolean;
   reflowable: boolean;
   zoomable: boolean;
+  printable: boolean;
 }
 
 // A position within a document. PDF uses `page`; later formats use cfi / fraction
@@ -132,7 +134,14 @@ interface DocAdapter {
   toBarPercent(pos: DocPos): number;
   posLabel(pos: DocPos): { current: string; total: string };
   currentCanvas(): HTMLCanvasElement | null;
+  renderPrintPage?(page: number, options: { dpi: number; grayscale: boolean }): Promise<PrintPage>;
   destroy(): void;
+}
+
+interface PrintPage {
+  blob: Blob;
+  widthPoints: number;
+  heightPoints: number;
 }
 
 interface Book {
@@ -276,6 +285,31 @@ const EN = {
   'rdr.zoomIn': 'Zoom in',
   'rdr.focus': 'Distraction-free (F)',
   'rdr.zenHint': 'Move the cursor up to show controls · Esc to exit',
+  'print.action': 'Print pages',
+  'print.title': 'Print PDF',
+  'print.pages': 'Pages',
+  'print.current': 'Current page ({page})',
+  'print.single': 'Single page',
+  'print.range': 'Page range',
+  'print.from': 'From',
+  'print.fromAria': 'From page',
+  'print.to': 'to',
+  'print.toAria': 'To page',
+  'print.color': 'Color',
+  'print.colorOption': 'Color',
+  'print.bwOption': 'Black and white',
+  'print.sizing': 'Page sizing',
+  'print.fit': 'Fit to printable area',
+  'print.actual': 'Actual size',
+  'print.hint': 'Paper size, orientation, and copies are available in the system print dialog.',
+  'print.submit': 'Print',
+  'print.preparing': 'Preparing page {current} of {total}…',
+  'print.error.required': 'Enter a page number.',
+  'print.error.integer': 'Use whole page numbers only.',
+  'print.error.bounds': 'Choose pages from 1 to {total}.',
+  'print.error.order': 'The first page must come before the last page.',
+  'print.error.failed': 'Could not prepare these pages for printing.',
+  'print.error.unsupported': 'Printing is not supported in this browser.',
   'drop.kicker': 'Add to your library',
   'drop.body': 'Drop PDF files to shelve them',
   'settings.title': 'Settings',
@@ -523,6 +557,31 @@ const PT: Record<MsgKey, string> = {
   'rdr.zoomIn': 'Aumentar zoom',
   'rdr.focus': 'Sem distrações (F)',
   'rdr.zenHint': 'Mova o cursor para cima para mostrar os controles · Esc para sair',
+  'print.action': 'Imprimir páginas',
+  'print.title': 'Imprimir PDF',
+  'print.pages': 'Páginas',
+  'print.current': 'Página atual ({page})',
+  'print.single': 'Página única',
+  'print.range': 'Intervalo de páginas',
+  'print.from': 'De',
+  'print.fromAria': 'Página inicial',
+  'print.to': 'até',
+  'print.toAria': 'Página final',
+  'print.color': 'Cor',
+  'print.colorOption': 'Colorido',
+  'print.bwOption': 'Preto e branco',
+  'print.sizing': 'Tamanho da página',
+  'print.fit': 'Ajustar à área imprimível',
+  'print.actual': 'Tamanho real',
+  'print.hint': 'Tamanho do papel, orientação e cópias estão disponíveis na caixa de impressão do sistema.',
+  'print.submit': 'Imprimir',
+  'print.preparing': 'Preparando página {current} de {total}…',
+  'print.error.required': 'Digite um número de página.',
+  'print.error.integer': 'Use apenas números de página inteiros.',
+  'print.error.bounds': 'Escolha páginas de 1 a {total}.',
+  'print.error.order': 'A primeira página deve vir antes da última.',
+  'print.error.failed': 'Não foi possível preparar estas páginas para impressão.',
+  'print.error.unsupported': 'A impressão não é compatível com este navegador.',
   'drop.kicker': 'Adicionar à sua biblioteca',
   'drop.body': 'Solte arquivos PDF para colocá-los na estante',
   'settings.title': 'Configurações',
@@ -769,6 +828,31 @@ const ES: Record<MsgKey, string> = {
   'rdr.zoomIn': 'Acercar',
   'rdr.focus': 'Sin distracciones (F)',
   'rdr.zenHint': 'Mueve el cursor hacia arriba para mostrar los controles · Esc para salir',
+  'print.action': 'Imprimir páginas',
+  'print.title': 'Imprimir PDF',
+  'print.pages': 'Páginas',
+  'print.current': 'Página actual ({page})',
+  'print.single': 'Página única',
+  'print.range': 'Intervalo de páginas',
+  'print.from': 'Desde',
+  'print.fromAria': 'Página inicial',
+  'print.to': 'hasta',
+  'print.toAria': 'Página final',
+  'print.color': 'Color',
+  'print.colorOption': 'Color',
+  'print.bwOption': 'Blanco y negro',
+  'print.sizing': 'Tamaño de página',
+  'print.fit': 'Ajustar al área imprimible',
+  'print.actual': 'Tamaño real',
+  'print.hint': 'El tamaño del papel, la orientación y las copias están disponibles en el diálogo de impresión del sistema.',
+  'print.submit': 'Imprimir',
+  'print.preparing': 'Preparando página {current} de {total}…',
+  'print.error.required': 'Introduce un número de página.',
+  'print.error.integer': 'Usa solo números de página enteros.',
+  'print.error.bounds': 'Elige páginas de 1 a {total}.',
+  'print.error.order': 'La primera página debe ir antes de la última.',
+  'print.error.failed': 'No se pudieron preparar estas páginas para imprimir.',
+  'print.error.unsupported': 'La impresión no es compatible con este navegador.',
   'drop.kicker': 'Añadir a tu biblioteca',
   'drop.body': 'Suelta archivos PDF para colocarlos en el estante',
   'settings.title': 'Ajustes',
@@ -2797,6 +2881,7 @@ class PdfAdapter implements DocAdapter {
     timeMedia: false,
     reflowable: false,
     zoomable: true,
+    printable: true,
   };
   private doc: any;
   private canvas: HTMLCanvasElement | null = null;
@@ -2843,6 +2928,31 @@ class PdfAdapter implements DocAdapter {
   }
 
   currentCanvas(): HTMLCanvasElement | null { return this.canvas; }
+
+  async renderPrintPage(pageNumber: number, options: { dpi: number; grayscale: boolean }): Promise<PrintPage> {
+    const page = await this.doc.getPage(pageNumber);
+    const natural = page.getViewport({ scale: 1 });
+    const scale = printRenderScale(natural.width, natural.height, options.dpi);
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.ceil(viewport.width));
+    canvas.height = Math.max(1, Math.ceil(viewport.height));
+    const ctx = canvas.getContext('2d', { alpha: false })!;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    if (options.grayscale) {
+      const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      grayscalePixels(pixels.data);
+      ctx.putImageData(pixels, 0, 0);
+    }
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(value => value ? resolve(value) : reject(new Error('print image encode failed')), 'image/png');
+    });
+    canvas.width = 1;
+    canvas.height = 1;
+    return { blob, widthPoints: natural.width, heightPoints: natural.height };
+  }
 
   destroy(): void { this.detachScroll?.(); this.detachScroll = null; this.doc = null; this.canvas = null; }
 }
@@ -2902,6 +3012,7 @@ class CbzAdapter implements DocAdapter {
     timeMedia: false,
     reflowable: false,
     zoomable: true,
+    printable: false,
   };
   private pages: { name: string; data: Uint8Array }[];
   private canvas: HTMLCanvasElement | null = null;
@@ -2956,6 +3067,7 @@ class ScrollTextAdapter implements DocAdapter {
     timeMedia: false,
     reflowable: false,
     zoomable: false,
+    printable: false,
   };
   readonly total = 1;
   private text: string;
@@ -3052,6 +3164,7 @@ class MediaAdapter implements DocAdapter {
     timeMedia: true,
     reflowable: false,
     zoomable: false,
+    printable: false,
   };
   readonly total = 1;
   private urlFor: () => Promise<string>;
@@ -3196,6 +3309,7 @@ class EpubAdapter implements DocAdapter {
     timeMedia: false,
     reflowable: true,
     zoomable: false,
+    printable: false,
   };
   readonly total = 1;        // reflow has no clean page count; nav is prev/next
   private epub: any;
@@ -3481,6 +3595,7 @@ async function openBook(id: string): Promise<void> {
     rd.classList.toggle('no-capture', !caps.regionClippable);
     rd.classList.toggle('no-zoom', !caps.zoomable);
     rd.classList.toggle('no-paged', !caps.paged);
+    rd.classList.toggle('no-print', !caps.printable);
     rd.classList.toggle('text-share-only', !caps.textSelectable);
     // Reflow (epub): no numeric pager, but the floating prev/next arrows stay
     // (CSS re-shows .rnav under .is-reflow even though .no-paged is set).
@@ -3500,6 +3615,7 @@ async function openBook(id: string): Promise<void> {
 }
 
 function closeReader(): void {
+  cancelPrintDialog();
   exitZen();
   exitCapture();
   el('reader').classList.remove('show');
@@ -4182,6 +4298,225 @@ async function shareBook(book: Book): Promise<void> {
   await shareFileOrDownload(file, { title: book.title, text: shareText(book) });
 }
 
+// ---------- PDF printing ----------
+type PrintPageMode = 'current' | 'single' | 'range';
+type PrintSizing = 'fit' | 'actual';
+let printJobToken = 0;
+let printPreparing = false;
+
+function checkedPrintValue(name: string): string {
+  return document.querySelector<HTMLInputElement>(`input[name="${name}"]:checked`)?.value || '';
+}
+
+function setPrintBusy(busy: boolean): void {
+  printPreparing = busy;
+  el<HTMLButtonElement>('print-submit').disabled = busy;
+  el('print-form').querySelectorAll<HTMLInputElement>('input').forEach(input => { input.disabled = busy; });
+  if (!busy) syncPrintPageInputs();
+}
+
+function syncPrintPageInputs(): void {
+  const mode = checkedPrintValue('print-pages') as PrintPageMode;
+  const single = el<HTMLInputElement>('print-single');
+  const start = el<HTMLInputElement>('print-start');
+  const end = el<HTMLInputElement>('print-end');
+  single.disabled = printPreparing;
+  start.disabled = printPreparing;
+  end.disabled = printPreparing;
+  single.readOnly = mode !== 'single';
+  start.readOnly = mode !== 'range';
+  end.readOnly = mode !== 'range';
+  single.tabIndex = mode === 'single' ? 0 : -1;
+  start.tabIndex = mode === 'range' ? 0 : -1;
+  end.tabIndex = mode === 'range' ? 0 : -1;
+  document.querySelectorAll<HTMLElement>('#print-dialog [data-print-mode]').forEach(row => {
+    row.classList.toggle('is-active', row.dataset.printMode === mode);
+  });
+}
+
+function setPrintError(message = ''): void {
+  const error = el('print-error');
+  error.textContent = message;
+  error.classList.toggle('hidden', !message);
+}
+
+function hidePrintDialog(): void {
+  const modal = el('print-dialog');
+  (modal as any)._untrap?.();
+  (modal as any)._untrap = null;
+  modal.classList.add('hidden');
+  setPrintBusy(false);
+}
+
+function cancelPrintDialog(): void {
+  if (el('print-dialog').classList.contains('hidden')) return;
+  printJobToken++;
+  hidePrintDialog();
+}
+
+function openPrintDialog(): void {
+  const adapter = reader.adapter;
+  if (!reader.book || !adapter?.caps.printable || !adapter.renderPrintPage) return;
+  if (!el('print-dialog').classList.contains('hidden')) return;
+  exitZen();
+  printJobToken++;
+  printPreparing = false;
+  const form = el<HTMLFormElement>('print-form');
+  form.reset();
+  const current = reader.page;
+  const total = adapter.total;
+  el('print-current-label').textContent = t('print.current', { page: current });
+  const single = el<HTMLInputElement>('print-single');
+  const start = el<HTMLInputElement>('print-start');
+  const end = el<HTMLInputElement>('print-end');
+  for (const input of [single, start, end]) input.max = String(total);
+  single.value = String(current);
+  start.value = String(current);
+  end.value = String(current);
+  setPrintError();
+  el('print-progress').classList.add('hidden');
+  setPrintBusy(false);
+  const modal = el('print-dialog');
+  modal.classList.remove('hidden');
+  const currentRadio = form.querySelector<HTMLInputElement>('input[name="print-pages"][value="current"]')!;
+  (modal as any)._untrap = trapFocus(modal, currentRadio);
+}
+
+function printErrorMessage(error: string, total: number): string {
+  switch (error) {
+    case 'required': return t('print.error.required');
+    case 'integer': return t('print.error.integer');
+    case 'bounds': return t('print.error.bounds', { total });
+    case 'order': return t('print.error.order');
+    default: return t('print.error.failed');
+  }
+}
+
+function waitForImage(img: HTMLImageElement): Promise<void> {
+  if (img.complete && img.naturalWidth) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    img.addEventListener('load', () => resolve(), { once: true });
+    img.addEventListener('error', () => reject(new Error('print image load failed')), { once: true });
+  });
+}
+
+async function printPreparedPages(pages: PrintPage[], sizing: PrintSizing, title: string): Promise<void> {
+  const frame = document.createElement('iframe');
+  frame.className = 'print-frame';
+  frame.title = t('print.title');
+  frame.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(frame);
+  const urls: string[] = [];
+  let timeout = 0;
+  let cleaned = false;
+  let afterPrint = () => {};
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    window.clearTimeout(timeout);
+    window.removeEventListener('afterprint', afterPrint);
+    frame.contentWindow?.removeEventListener('afterprint', afterPrint);
+    urls.forEach(url => URL.revokeObjectURL(url));
+    frame.remove();
+    if (el('reader').classList.contains('show')) el<HTMLButtonElement>('r-print').focus();
+  };
+  afterPrint = cleanup;
+
+  try {
+    const doc = frame.contentDocument;
+    const win = frame.contentWindow;
+    if (!doc || !win || typeof win.print !== 'function') throw new Error('window.print unavailable');
+    doc.documentElement.lang = locale;
+    doc.title = title;
+    const meta = doc.createElement('meta');
+    meta.setAttribute('charset', 'utf-8');
+    const style = doc.createElement('style');
+    style.textContent = `
+      @page { margin: ${sizing === 'fit' ? '10mm' : '0'}; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; background: #fff; }
+      .sheet { break-after: page; page-break-after: always; overflow: hidden; }
+      .sheet:last-child { break-after: auto; page-break-after: auto; }
+      .sheet.fit { display: flex; align-items: center; justify-content: center; width: 100%; height: 100vh; }
+      .sheet.fit img { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; }
+      .sheet.actual img { display: block; max-width: none; }
+    `;
+    doc.head.replaceChildren(meta, style);
+    const imageLoads: Promise<void>[] = [];
+    pages.forEach(page => {
+      const sheet = doc.createElement('section');
+      sheet.className = 'sheet ' + sizing;
+      const img = doc.createElement('img');
+      const url = URL.createObjectURL(page.blob);
+      urls.push(url);
+      img.src = url;
+      img.alt = '';
+      if (sizing === 'actual') {
+        img.style.width = page.widthPoints + 'pt';
+        img.style.height = page.heightPoints + 'pt';
+      }
+      sheet.appendChild(img);
+      doc.body.appendChild(sheet);
+      imageLoads.push(waitForImage(img));
+    });
+    await Promise.all(imageLoads);
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+
+    win.addEventListener('afterprint', afterPrint, { once: true });
+    window.addEventListener('afterprint', afterPrint, { once: true });
+    timeout = window.setTimeout(cleanup, 120_000);
+    win.focus();
+    win.print();
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
+}
+
+async function submitPrint(): Promise<void> {
+  const adapter = reader.adapter;
+  const book = reader.book;
+  if (!book || !adapter?.caps.printable || !adapter.renderPrintPage) return;
+  if (typeof window.print !== 'function') { setPrintError(t('print.error.unsupported')); return; }
+  const total = adapter.total;
+  const selection = resolvePrintPages({
+    mode: checkedPrintValue('print-pages') as PrintPageMode,
+    current: reader.page,
+    single: el<HTMLInputElement>('print-single').value,
+    start: el<HTMLInputElement>('print-start').value,
+    end: el<HTMLInputElement>('print-end').value,
+    total,
+  });
+  if (selection.error) { setPrintError(printErrorMessage(selection.error, total)); return; }
+
+  setPrintError();
+  setPrintBusy(true);
+  const progress = el('print-progress');
+  progress.classList.remove('hidden');
+  const token = ++printJobToken;
+  const grayscale = checkedPrintValue('print-color') === 'grayscale';
+  const sizing = checkedPrintValue('print-sizing') as PrintSizing;
+  const rendered: PrintPage[] = [];
+  try {
+    for (let i = 0; i < selection.pages.length; i++) {
+      if (token !== printJobToken) return;
+      progress.textContent = t('print.preparing', { current: i + 1, total: selection.pages.length });
+      rendered.push(await adapter.renderPrintPage(selection.pages[i], { dpi: 150, grayscale }));
+    }
+    if (token !== printJobToken) return;
+    hidePrintDialog();
+    await printPreparedPages(rendered, sizing, book.title);
+  } catch (error) {
+    console.error(error);
+    if (token !== printJobToken) return;
+    if (el('print-dialog').classList.contains('hidden')) openPrintDialog();
+    setPrintBusy(false);
+    progress.classList.add('hidden');
+    setPrintError(error instanceof Error && error.message === 'window.print unavailable'
+      ? t('print.error.unsupported') : t('print.error.failed'));
+  }
+}
+
 // ---------- clip share sheet ----------
 let sheetState: { rects: Rect[]; text?: string; clip?: Clip; color: string; blob?: Blob } | null = null;
 
@@ -4241,7 +4576,32 @@ function wireReader(): void {
   el('r-stage').addEventListener('touchend', onReaderTouchEnd, { passive: true });
   el('r-focus').addEventListener('click', toggleZen);
 
+  el('r-print').addEventListener('click', openPrintDialog);
   el('r-share').addEventListener('click', () => { if (reader.book) shareBook(reader.book); });
+
+  el('print-form').addEventListener('submit', (e) => { e.preventDefault(); void submitPrint(); });
+  el('print-cancel').addEventListener('click', cancelPrintDialog);
+  el('print-dialog').addEventListener('click', (e) => { if (e.target === el('print-dialog')) cancelPrintDialog(); });
+  document.querySelectorAll<HTMLInputElement>('input[name="print-pages"]').forEach(input => input.addEventListener('change', syncPrintPageInputs));
+  for (const id of ['print-single', 'print-start', 'print-end']) {
+    el<HTMLInputElement>(id).addEventListener('focus', () => {
+      const mode = id === 'print-single' ? 'single' : 'range';
+      const radio = document.querySelector<HTMLInputElement>(`input[name="print-pages"][value="${mode}"]`)!;
+      if (!radio.checked) { radio.checked = true; syncPrintPageInputs(); }
+    });
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !el('print-dialog').classList.contains('hidden')) {
+      e.preventDefault();
+      cancelPrintDialog();
+      return;
+    }
+    if (isPrintShortcut(e)
+        && el('reader').classList.contains('show') && reader.adapter?.caps.printable) {
+      e.preventDefault();
+      openPrintDialog();
+    }
+  }, true);
 
   // --- clippings: snapshot capture + saved-clip taps + share sheet ---
   el('r-snap').addEventListener('click', toggleCapture);

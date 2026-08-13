@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Folium Café Lambda backend (Function URL)",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "test": "node --test",
     "zip": "rm -f function.zip && zip -rq function.zip src node_modules package.json"

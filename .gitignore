@@ -1,23 +1,49 @@
+# Dependencies
 node_modules/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Test and tool output
+coverage/
+*.log
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
 
 # Terraform
 **/.terraform/*
 *.tfstate
 *.tfstate.*
 crash.log
+crash.*.log
 *.tfplan
-.terraform.lock.hcl
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraform.tfstate.lock.info
 infra/build/
 
 # Backend build
-backend/node_modules/
 backend/dist/
 backend/function.zip
 
 # Built frontend (built in CI; keep source app.ts)
 project/app.js
-
 project/sw.js
+
+# Local reader uploads (sample fixtures belong in project/samples/)
+project/uploads/
 
 # Claude Code session artifacts
 .claude/
