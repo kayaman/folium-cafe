@@ -219,6 +219,7 @@
       <button id="r-zoom-out" title="Zoom out" data-i18n-title="rdr.zoomOut">–</button>
       <button id="r-zoom-in" title="Zoom in" data-i18n-title="rdr.zoomIn">+</button>
     </div>
+    <button class="ico" id="r-print" title="Print pages" data-i18n-title="print.action" aria-label="Print pages" data-i18n-aria="print.action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V3h12v6"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="7"/><path d="M18 12h.01"/></svg></button>
     <button class="ico" id="r-share" title="Share file" data-i18n-title="share.action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg></button>
     <button class="ico" id="r-snap" title="Snapshot and share" data-i18n-title="clip.snapshot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg></button>
     <button class="ico" id="r-focus" title="Distraction-free (F)" data-i18n-title="rdr.focus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M16 21h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
@@ -233,6 +234,40 @@
   <div class="zen-hint" id="zen-hint" data-i18n="rdr.zenHint">Move the cursor up to show controls · Esc to exit</div>
   <div id="r-capsel"></div>
 </section>
+
+<!-- ============ PRINT DIALOG ============ -->
+<div id="print-dialog" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="print-title">
+  <div class="settings-card print-card">
+    <h2 id="print-title" class="smallcaps" data-i18n="print.title">Print PDF</h2>
+    <form id="print-form" novalidate>
+      <fieldset class="print-options">
+        <legend data-i18n="print.pages">Pages</legend>
+        <label class="print-choice" data-print-mode="current"><input type="radio" name="print-pages" value="current" checked><span id="print-current-label">Current page</span></label>
+        <div class="print-choice print-choice-input" data-print-mode="single"><label><input type="radio" name="print-pages" value="single"><span data-i18n="print.single">Single page</span></label><input id="print-single" type="number" min="1" step="1" inputmode="numeric" aria-label="Single page" data-i18n-aria="print.single"></div>
+        <div class="print-choice print-choice-input print-range-choice" data-print-mode="range"><label><input type="radio" name="print-pages" value="range"><span data-i18n="print.range">Page range</span></label><span class="print-range-inputs"><span data-i18n="print.from">From</span><input id="print-start" type="number" min="1" step="1" inputmode="numeric" aria-label="From page" data-i18n-aria="print.fromAria"><span data-i18n="print.to">to</span><input id="print-end" type="number" min="1" step="1" inputmode="numeric" aria-label="To page" data-i18n-aria="print.toAria"></span></div>
+      </fieldset>
+      <div class="print-option-grid">
+        <fieldset class="print-options">
+          <legend data-i18n="print.color">Color</legend>
+          <label class="print-choice"><input type="radio" name="print-color" value="color" checked><span data-i18n="print.colorOption">Color</span></label>
+          <label class="print-choice"><input type="radio" name="print-color" value="grayscale"><span data-i18n="print.bwOption">Black and white</span></label>
+        </fieldset>
+        <fieldset class="print-options">
+          <legend data-i18n="print.sizing">Page sizing</legend>
+          <label class="print-choice"><input type="radio" name="print-sizing" value="fit" checked><span data-i18n="print.fit">Fit to printable area</span></label>
+          <label class="print-choice"><input type="radio" name="print-sizing" value="actual"><span data-i18n="print.actual">Actual size</span></label>
+        </fieldset>
+      </div>
+      <p class="print-hint" data-i18n="print.hint">Paper size, orientation, and copies are available in the system print dialog.</p>
+      <p id="print-error" class="print-error hidden" role="alert"></p>
+      <div id="print-progress" class="print-progress hidden" role="status" aria-live="polite"></div>
+      <div class="coll-picker-actions">
+        <button type="button" class="mast-btn" id="print-cancel" data-i18n="confirm.cancel">Cancel</button>
+        <button type="submit" class="mast-btn brass" id="print-submit" data-i18n="print.submit">Print</button>
+      </div>
+    </form>
+  </div>
+</div>
 
 <!-- ============ NOTE EDITOR ============ -->
 <section id="note-editor">

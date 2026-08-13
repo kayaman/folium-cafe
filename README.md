@@ -12,6 +12,7 @@ A private, single-user PDF reading room at [folium.cafe](https://folium.cafe). U
 - **PWA** — installs to the Android home screen (leaf crest, splash, edge-to-edge leather theming, "Continue reading" shortcut)
 - **Offline reading** — opened books are cached on-device (LRU, 10 books); page turns made offline sync back when you reconnect
 - **Share-sheet ingestion** — share a PDF from any Android app straight onto your shelf
+- **PDF printing** — print the current page, one page, or an inclusive range in color or grayscale with fit/actual sizing
 - **A quiet reader** — comfort/full width, zoom, zen mode, edge-aware wheel page turns
 
 ## Stack
@@ -27,11 +28,16 @@ A private, single-user PDF reading room at [folium.cafe](https://folium.cafe). U
 ## Development
 
 ```sh
-npm ci && npm run build     # bundle app.ts + sw.ts
-cd backend && npm test      # lambda unit tests (node:test)
-cd infra && terraform plan  # infra changes
-npm run icons               # re-render icon PNGs from the SVG crest masters
+npm ci
+npm ci --prefix backend
+npm run check               # typecheck, i18n coverage, and all tests
+npm run build               # bundle app.ts + sw.ts
+terraform -chdir=infra fmt -check -recursive
+terraform -chdir=infra validate
 ```
+
+Use Node.js 20 or newer (the repository includes an `.nvmrc`). Run
+`npm run icons` to re-render icon PNGs from the SVG crest masters.
 
 There's no local dev server — the API only exists behind CloudFront. Push to a branch for CI; merge to `main` to deploy.
 

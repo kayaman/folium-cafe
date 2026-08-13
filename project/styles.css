@@ -433,6 +433,7 @@ button{font-family:inherit;cursor:pointer}
 /* capability gating: hide reader chrome a format can't use */
 #reader.no-capture #r-snap{display:none}
 #reader.no-zoom .seg.zoom{display:none}
+#reader.no-print #r-print{display:none}
 #reader.no-paged .pager,
 #reader.no-paged .rnav{display:none}
 /* reflow (epub) has no numeric pager, but keeps the floating prev/next arrows */
@@ -514,8 +515,12 @@ button{font-family:inherit;cursor:pointer}
   .mast-btn .caret{display:none}
   .lib-wrap{padding:24px 16px 80px}
   .row .rprog,.row .rwhen{display:none}
-  .rbar .rtitle .t{max-width:38vw}
-  .rbar .seg,.continue .ca{}
+  .rbar{gap:5px;padding-left:6px;padding-right:6px}
+  .rbar .rtitle,.rbar #width-seg,.rbar .seg.zoom{display:none}
+  .rbar .pager{gap:4px}
+  .rbar .pager .ico{display:none}
+  .rbar .ico{width:36px;height:36px}
+  .rbar .pageinput{width:50px;padding:6px 4px}
 }
 @media (max-width:380px){
   .masthead-inner{gap:8px;padding:0 12px}
@@ -567,6 +572,41 @@ body{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-ri
   background:var(--input-bg);border:1px solid var(--rule);border-radius:3px;outline:none;transition:.18s}
 .settings-card select:focus,.coll-select:focus{border-color:var(--leather-2);box-shadow:0 0 0 3px rgba(124,51,39,.12)}
 .settings-card .btn-primary{margin-top:14px}
+
+/* PDF printing dialog */
+.print-card{width:min(540px,100%);max-height:calc(100dvh - 40px);overflow:auto}
+.print-options{border:0;padding:0;margin:0 0 18px;min-width:0}
+.print-options legend{width:100%;padding:0 0 7px;border-bottom:1px solid var(--rule);
+  font-family:var(--display);font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--leather)}
+.print-choice{display:flex;align-items:center;gap:9px;min-height:38px;padding:5px 7px;border-radius:4px;
+  font-family:var(--read);font-size:15px;color:var(--ink);cursor:pointer}
+.print-choice > label{display:flex;align-items:center;gap:9px;cursor:pointer}
+.print-choice:hover,.print-choice.is-active{background:rgba(110,74,41,.07)}
+.print-choice input[type="radio"]{accent-color:var(--leather);flex:none}
+.print-choice-input > label > span{min-width:94px}
+.print-choice input[type="number"]{width:72px;padding:7px 8px;border:1px solid var(--rule);border-radius:3px;
+  background:var(--input-bg);color:var(--ink);font-family:var(--read);font-size:15px;outline:none}
+.print-choice input[type="number"]:focus{border-color:var(--leather-2);box-shadow:0 0 0 3px rgba(124,51,39,.12)}
+.print-choice input[type="number"]:read-only{opacity:.5}
+.print-choice input[type="number"]:disabled{opacity:.45;cursor:not-allowed}
+.print-range-inputs{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:13px}
+.print-option-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.print-option-grid .print-options{margin-bottom:4px}
+.print-hint{margin:9px 0 0;color:var(--muted);font-size:13px;line-height:1.45;font-style:italic}
+.print-error{margin:12px 0 0;padding:9px 11px;border-left:3px solid var(--leather);background:rgba(124,51,39,.08);
+  color:var(--leather);font-size:13px}
+.print-progress{margin:12px 0 0;color:var(--ink-2);font-size:14px;font-style:italic}
+.print-card button:disabled{opacity:.5;cursor:not-allowed}
+.print-frame{position:fixed;left:-10000px;top:0;width:1px;height:1px;border:0;visibility:hidden}
+
+@media (max-width:580px){
+  #print-dialog{padding:12px}
+  .print-card{padding:26px 20px 20px;max-height:calc(100dvh - 24px)}
+  .print-option-grid{grid-template-columns:1fr;gap:0}
+  .print-choice-input{flex-wrap:wrap}
+  .print-range-choice > label{min-width:100%}
+  .print-range-inputs{margin-left:25px}
+}
 
 /* About modal */
 .about-card{width:min(460px,100%);max-height:calc(100dvh - 40px);overflow-y:auto;text-align:center}
