@@ -138,6 +138,11 @@
         <span class="mark">FOLIUM</span>
         <span class="sub">café</span>
       </div>
+      <nav class="catalog-tabs" id="catalog-tabs" aria-label="Catalog" data-i18n-aria="catalog.navAria">
+        <button class="active" data-catalog-tab="books" data-i18n="catalog.books">Books</button>
+        <button data-catalog-tab="authors" data-i18n="catalog.authors">Authors</button>
+        <button data-catalog-tab="publishers" data-i18n="catalog.publishers">Publishers</button>
+      </nav>
       <div class="spacer"></div>
       <nav class="viewswitch" id="viewswitch" aria-label="Library view" data-i18n-aria="mast.viewAria">
         <button data-view="shelf" title="Bookshelf" data-i18n-title="mast.shelfTitle" aria-label="Shelf" data-i18n-aria="mast.shelf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5M9 19V5M14 19V6l5 1-1 12"/><path d="M3 19h18"/></svg><span data-i18n="mast.shelf">Shelf</span></button>
@@ -173,7 +178,7 @@
 
   <main id="library">
     <div class="lib-wrap">
-      <div class="lib-head">
+      <div class="lib-head" id="lib-head">
         <h2 id="lib-title" data-i18n="lib.title">Your Library</h2>
         <span class="count" id="lib-count"></span>
       </div>
@@ -195,6 +200,7 @@
       </a>
 
       <div id="lib-body"></div>
+      <section id="catalog-body" class="hidden" aria-live="polite"></section>
     </div>
   </main>
 </div>
@@ -318,17 +324,29 @@
     <div class="smallcaps" id="bd-title" data-i18n="details.title">Book details</div>
     <div class="field"><label data-i18n="details.fTitle">Title</label><input id="bd-f-title" type="text"></div>
     <div class="field"><label data-i18n="details.fSubtitle">Subtitle</label><input id="bd-f-subtitle" type="text"></div>
-    <div class="field"><label data-i18n="details.fAuthors">Authors</label><input id="bd-f-authors" type="text" data-i18n-placeholder="details.authorsPh"></div>
+    <div class="field"><label for="bd-author-input" data-i18n="details.fAuthors">Authors</label>
+      <div id="bd-author-combo" class="entity-combo"><div id="bd-author-chips" class="entity-chips"></div><input id="bd-author-input" type="text" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="bd-author-options" data-i18n-placeholder="details.authorsPh"><ul id="bd-author-options" class="entity-options hidden" role="listbox"></ul></div>
+      <input id="bd-f-authors" type="hidden">
+    </div>
     <div class="field"><label data-i18n="details.fSeries">Series</label><input id="bd-f-series" type="text"></div>
     <div class="field"><label data-i18n="details.fEdition">Edition</label><input id="bd-f-edition" type="text"></div>
-    <div class="field"><label data-i18n="details.fPublisher">Publisher</label><input id="bd-f-publisher" type="text"></div>
+    <div class="field"><label for="bd-f-publisher" data-i18n="details.fPublisher">Publisher</label><div class="entity-combo"><input id="bd-f-publisher" type="text" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="bd-publisher-options"><ul id="bd-publisher-options" class="entity-options hidden" role="listbox"></ul></div></div>
     <div class="field"><label data-i18n="details.fYear">Year</label><input id="bd-f-year" type="number" inputmode="numeric"></div>
     <div class="field"><label data-i18n="details.fIsbn">ISBN</label><input id="bd-f-isbn" type="text"></div>
     <div class="field"><label data-i18n="details.fLanguage">Language</label><input id="bd-f-language" type="text"></div>
     <div class="field"><label data-i18n="details.fDescription">Description</label><textarea id="bd-f-description" rows="4"></textarea></div>
+    <div class="field bd-cover-editor">
+      <label data-i18n="cover.section">Cover</label>
+      <div class="bd-cover-row"><div id="bd-cover-preview" class="bd-cover-preview"></div><div class="bd-cover-actions">
+        <label class="mast-btn" for="bd-cover-upload" data-i18n="cover.upload">Upload image</label><input id="bd-cover-upload" class="hidden" type="file" accept="image/jpeg,image/png,image/webp">
+        <button class="mast-btn" id="bd-cover-catalog" data-i18n="cover.catalog">Use catalog cover</button>
+        <button class="mast-btn" id="bd-cover-reset" data-i18n="cover.reset">Reset to document</button>
+      </div></div><span id="bd-cover-status" class="bd-gr-status" role="status"></span>
+    </div>
     <div class="field"><label data-i18n="details.fCollection">Collections</label><div id="bd-f-collection" class="coll-checklist"></div></div>
     <div class="field bd-goodreads">
       <label data-i18n="goodreads.section">Find online</label>
+      <div id="bd-match-state" class="bd-match-state"></div>
       <div class="bd-gr-search">
         <button class="mast-btn" id="bd-gr-search" data-i18n="goodreads.find">Search Open Library</button>
         <span id="bd-gr-status" class="bd-gr-status" role="status" aria-live="polite"></span>
@@ -337,6 +355,7 @@
       <label for="bd-f-goodreads" data-i18n="goodreads.urlLabel">Goodreads URL</label>
       <input id="bd-f-goodreads" type="url" inputmode="url" data-i18n-placeholder="goodreads.urlPh" placeholder="https://www.goodreads.com/book/show/…">
       <a id="bd-gr-view" class="mast-btn brass bd-gr-view hidden" target="_blank" rel="noopener noreferrer" data-i18n="goodreads.view">View on Goodreads</a>
+      <button id="bd-unlink" class="mast-btn hidden" data-i18n="catalog.unlink">Unlink catalog record</button>
     </div>
     <div class="coll-picker-actions">
       <button class="mast-btn" id="bd-ai" data-i18n="details.fillAI">Fill with AI</button>

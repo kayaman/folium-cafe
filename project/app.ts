@@ -176,12 +176,22 @@ interface Book {
   series?: string;
   description?: string;
   goodreadsUrl?: string;      // Goodreads book link (Open Library match or manual paste)
+  catalogBookId?: string;
+  catalogAuthorIds?: string[];
+  catalogPublisherIds?: string[];
+  canonicalMetadata?: Record<string, unknown>;
+  metadataOverrides?: Record<string, unknown>;
+  catalogMatchStatus?: 'unmatched' | 'checking' | 'suggested' | 'none' | 'linked';
+  catalogCheckedAt?: number;
+  catalogSuggestions?: Candidate[];
 }
 // A user-defined grouping of books. Membership lives on each Book.collections.
 type Collection = { id: string; name: string; createdAt: number };
 // A note is a first-class library item with no PDF bytes: numPages 1, no cover.
 function isNote(b: Book): boolean { return b.format === 'note'; }
 type ViewMode = 'shelf' | 'grid' | 'list';
+type CatalogTab = 'books' | 'authors' | 'publishers';
+interface CatalogEntity { id: string; name: string; aliases?: string[]; bookIds: string[]; local?: boolean; sourceUrl?: string; imageUrl?: string; }
 
 // A clipping: a saved selection from one page. rects are normalized page
 // coordinates (fractions 0..1) so they reflow across zoom/width/resize.
@@ -251,6 +261,24 @@ const EN = {
   'mast.addTitle': 'Add PDFs',
   'mast.addLabel': 'Add',
   'mast.linkMedia': 'Link media',
+  'catalog.navAria': 'Library catalog',
+  'catalog.books': 'Books',
+  'catalog.authors': 'Authors',
+  'catalog.publishers': 'Publishers',
+  'catalog.search': 'Search catalog',
+  'catalog.local': 'Local',
+  'catalog.bookCount.one': '{n} book',
+  'catalog.bookCount.other': '{n} books',
+  'catalog.emptyAuthors': 'No authors yet. Add author names in Book details.',
+  'catalog.emptyPublishers': 'No publishers yet. Add a publisher in Book details.',
+  'catalog.linked': 'Linked to Open Library',
+  'catalog.suggested': 'A catalog match is ready for review',
+  'catalog.unmatched': 'Not linked to a catalog record',
+  'catalog.unlink': 'Unlink catalog record',
+  'catalog.unlinked': 'Catalog record unlinked',
+  'catalog.matched': 'Book linked to the catalog',
+  'catalog.matching': 'Checking catalog metadata…',
+  'catalog.localOverrides': 'Local edits: {fields}',
   'menu.atCafe': 'at the café',
   'menu.settings': 'Settings',
   'menu.install': 'Install Folium Café',
@@ -448,6 +476,13 @@ const EN = {
   'details.aiOffline': 'You’re offline — try again when online',
   'details.saved': 'Details saved',
   'details.menuItem': 'Details',
+  'cover.section': 'Cover',
+  'cover.upload': 'Upload image',
+  'cover.catalog': 'Use catalog cover',
+  'cover.reset': 'Reset to document',
+  'cover.invalid': 'Choose a JPEG, PNG, or WebP image under 10 MB',
+  'cover.resetDone': 'Original document cover restored',
+  'cover.noCatalog': 'Link a catalog record with a cover first',
   'goodreads.section': 'Find online',
   'goodreads.find': 'Search Open Library',
   'goodreads.searching': 'Searching…',
@@ -455,7 +490,6 @@ const EN = {
   'goodreads.noMatches': 'No matches found',
   'goodreads.resultsLabel': 'Search results',
   'goodreads.pick': 'Use this',
-  'goodreads.applied': 'Filled from the match',
   'goodreads.noLink': 'No Goodreads link for this match',
   'goodreads.urlLabel': 'Goodreads URL',
   'goodreads.urlPh': 'https://www.goodreads.com/book/show/…',
@@ -523,6 +557,24 @@ const PT: Record<MsgKey, string> = {
   'mast.addTitle': 'Adicionar PDFs',
   'mast.addLabel': 'Adicionar',
   'mast.linkMedia': 'Vincular mídia',
+  'catalog.navAria': 'Catálogo da biblioteca',
+  'catalog.books': 'Livros',
+  'catalog.authors': 'Autores',
+  'catalog.publishers': 'Editoras',
+  'catalog.search': 'Buscar no catálogo',
+  'catalog.local': 'Local',
+  'catalog.bookCount.one': '{n} livro',
+  'catalog.bookCount.other': '{n} livros',
+  'catalog.emptyAuthors': 'Ainda não há autores. Adicione nomes em Detalhes do livro.',
+  'catalog.emptyPublishers': 'Ainda não há editoras. Adicione uma editora em Detalhes do livro.',
+  'catalog.linked': 'Vinculado à Open Library',
+  'catalog.suggested': 'Há uma correspondência para revisar',
+  'catalog.unmatched': 'Não vinculado a um registro do catálogo',
+  'catalog.unlink': 'Desvincular registro do catálogo',
+  'catalog.unlinked': 'Registro do catálogo desvinculado',
+  'catalog.matched': 'Livro vinculado ao catálogo',
+  'catalog.matching': 'Verificando metadados do catálogo…',
+  'catalog.localOverrides': 'Edições locais: {fields}',
   'menu.atCafe': 'no café',
   'menu.settings': 'Configurações',
   'menu.install': 'Instalar o Folium Café',
@@ -720,6 +772,13 @@ const PT: Record<MsgKey, string> = {
   'details.aiOffline': 'Você está offline — tente novamente quando estiver online',
   'details.saved': 'Detalhes salvos',
   'details.menuItem': 'Detalhes',
+  'cover.section': 'Capa',
+  'cover.upload': 'Enviar imagem',
+  'cover.catalog': 'Usar capa do catálogo',
+  'cover.reset': 'Restaurar do documento',
+  'cover.invalid': 'Escolha uma imagem JPEG, PNG ou WebP de até 10 MB',
+  'cover.resetDone': 'Capa original do documento restaurada',
+  'cover.noCatalog': 'Primeiro vincule um registro com capa',
   'goodreads.section': 'Buscar online',
   'goodreads.find': 'Buscar na Open Library',
   'goodreads.searching': 'Buscando…',
@@ -727,7 +786,6 @@ const PT: Record<MsgKey, string> = {
   'goodreads.noMatches': 'Nenhuma correspondência encontrada',
   'goodreads.resultsLabel': 'Resultados da busca',
   'goodreads.pick': 'Usar este',
-  'goodreads.applied': 'Preenchido a partir da correspondência',
   'goodreads.noLink': 'Sem link do Goodreads para esta correspondência',
   'goodreads.urlLabel': 'URL do Goodreads',
   'goodreads.urlPh': 'https://www.goodreads.com/book/show/…',
@@ -794,6 +852,24 @@ const ES: Record<MsgKey, string> = {
   'mast.addTitle': 'Añadir PDFs',
   'mast.addLabel': 'Añadir',
   'mast.linkMedia': 'Vincular medios',
+  'catalog.navAria': 'Catálogo de la biblioteca',
+  'catalog.books': 'Libros',
+  'catalog.authors': 'Autores',
+  'catalog.publishers': 'Editoriales',
+  'catalog.search': 'Buscar en el catálogo',
+  'catalog.local': 'Local',
+  'catalog.bookCount.one': '{n} libro',
+  'catalog.bookCount.other': '{n} libros',
+  'catalog.emptyAuthors': 'Aún no hay autores. Añade nombres en Detalles del libro.',
+  'catalog.emptyPublishers': 'Aún no hay editoriales. Añade una editorial en Detalles del libro.',
+  'catalog.linked': 'Enlazado con Open Library',
+  'catalog.suggested': 'Hay una coincidencia para revisar',
+  'catalog.unmatched': 'No enlazado con un registro del catálogo',
+  'catalog.unlink': 'Desenlazar registro del catálogo',
+  'catalog.unlinked': 'Registro del catálogo desenlazado',
+  'catalog.matched': 'Libro enlazado con el catálogo',
+  'catalog.matching': 'Comprobando metadatos del catálogo…',
+  'catalog.localOverrides': 'Ediciones locales: {fields}',
   'menu.atCafe': 'en el café',
   'menu.settings': 'Ajustes',
   'menu.install': 'Instalar Folium Café',
@@ -991,6 +1067,13 @@ const ES: Record<MsgKey, string> = {
   'details.aiOffline': 'Estás sin conexión — inténtalo de nuevo cuando estés en línea',
   'details.saved': 'Detalles guardados',
   'details.menuItem': 'Detalles',
+  'cover.section': 'Portada',
+  'cover.upload': 'Subir imagen',
+  'cover.catalog': 'Usar portada del catálogo',
+  'cover.reset': 'Restaurar del documento',
+  'cover.invalid': 'Elige una imagen JPEG, PNG o WebP de hasta 10 MB',
+  'cover.resetDone': 'Portada original del documento restaurada',
+  'cover.noCatalog': 'Primero enlaza un registro que tenga portada',
   'goodreads.section': 'Buscar en línea',
   'goodreads.find': 'Buscar en Open Library',
   'goodreads.searching': 'Buscando…',
@@ -998,7 +1081,6 @@ const ES: Record<MsgKey, string> = {
   'goodreads.noMatches': 'No se encontraron coincidencias',
   'goodreads.resultsLabel': 'Resultados de la búsqueda',
   'goodreads.pick': 'Usar este',
-  'goodreads.applied': 'Rellenado desde la coincidencia',
   'goodreads.noLink': 'Sin enlace de Goodreads para esta coincidencia',
   'goodreads.urlLabel': 'URL de Goodreads',
   'goodreads.urlPh': 'https://www.goodreads.com/book/show/…',
@@ -1069,7 +1151,10 @@ function setLanguage(pref: LangPref): void {
   locale = resolveLocale();
   pluralRules = new Intl.PluralRules(locale);
   applyI18n();
-  if (!el('app').classList.contains('hidden')) renderLibrary();
+  if (!el('app').classList.contains('hidden')) {
+    if (catalogTab === 'books') renderLibrary();
+    else void setCatalogTab(catalogTab);
+  }
 }
 
 function toast(msg: string, opts?: { error?: boolean; duration?: number }): void {
@@ -1695,6 +1780,8 @@ if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEven
 migrateLocalStorage();   // must run before viewMode/reader.width read their keys
 let books: Book[] = [];
 let viewMode: ViewMode = (localStorage.getItem(LS.view) as ViewMode) || 'shelf';
+let catalogTab: CatalogTab = 'books';
+let catalogEntities: { authors: CatalogEntity[]; publishers: CatalogEntity[] } = { authors: [], publishers: [] };
 let collections: Collection[] = [];
 // The "Uncollected" filter pseudo-id. Real collection ids always start with
 // `coll`, so this can never collide and may live in the same Set as real ids.
@@ -2142,6 +2229,7 @@ async function addFiles(files: FileList | File[]): Promise<void> {
     if (b) books.unshift(b);
   }
   renderLibrary();
+  void checkCatalogMatches(books);
   toast(t('toast.added'));
 }
 
@@ -2335,6 +2423,88 @@ function renderLibrary(): void {
   body.innerHTML = renderChips() + view;
 }
 
+function renderCatalogEntities(kind: 'authors' | 'publishers', query = ''): void {
+  const host = el('catalog-body');
+  const q = query.trim().toLocaleLowerCase(locale);
+  const entities = catalogEntities[kind].filter((entity) => !q
+    || entity.name.toLocaleLowerCase(locale).includes(q)
+    || entity.aliases?.some((alias) => alias.toLocaleLowerCase(locale).includes(q)));
+  const empty = kind === 'authors' ? t('catalog.emptyAuthors') : t('catalog.emptyPublishers');
+  const cards = entities.map((entity) => {
+    const titles = entity.bookIds.map((id) => books.find((book) => book.id === id)?.title).filter(Boolean);
+    const image = kind === 'authors' && entity.imageUrl
+      ? `<img class="entity-avatar" src="${escapeHtml(entity.imageUrl)}" alt="" loading="lazy">` : '';
+    const name = entity.sourceUrl
+      ? `<a href="${escapeHtml(entity.sourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(entity.name)}</a>`
+      : escapeHtml(entity.name);
+    const aliases = (entity.aliases ?? []).filter((alias) => alias !== entity.name);
+    return `<article class="entity-card">${image}<div class="entity-card-copy"><h3>${name}${entity.local ? `<span class="entity-local">${t('catalog.local')}</span>` : ''}</h3>`
+      + `<p>${tn('catalog.bookCount', entity.bookIds.length)}</p>`
+      + (aliases.length ? `<p>${aliases.map((alias) => escapeHtml(alias)).join(' · ')}</p>` : '')
+      + `<div class="entity-books">${titles.map((title) => escapeHtml(title)).join(' · ')}</div></div></article>`;
+  }).join('');
+  host.innerHTML = `<div class="catalog-search"><input id="catalog-search-input" type="search" value="${escapeHtml(query)}" placeholder="${escapeHtml(t('catalog.search'))}" aria-label="${escapeHtml(t('catalog.search'))}"></div>`
+    + (cards ? `<div class="entity-grid">${cards}</div>` : `<div class="empty"><p>${empty}</p></div>`);
+  el<HTMLInputElement>('catalog-search-input').addEventListener('input', (event) => {
+    renderCatalogEntities(kind, (event.target as HTMLInputElement).value);
+    const input = document.getElementById('catalog-search-input') as HTMLInputElement | null;
+    input?.focus(); input?.setSelectionRange(input.value.length, input.value.length);
+  });
+}
+
+async function loadCatalogEntities(): Promise<void> {
+  try {
+    const res = await api('/catalog');
+    if (!res.ok) throw new Error('catalog failed');
+    const data = await res.json();
+    catalogEntities = {
+      authors: Array.isArray(data.authors) ? data.authors : [],
+      publishers: Array.isArray(data.publishers) ? data.publishers : [],
+    };
+  } catch (error) {
+    if (!(error instanceof ApiNetworkError)) console.error('catalog load', error);
+    // Offline fallback: catalog views can still be derived from the book snapshot.
+    const authors = new Map<string, CatalogEntity>();
+    const publishers = new Map<string, CatalogEntity>();
+    for (const book of books.filter((item) => !isNote(item))) {
+      const names = book.authors?.length ? book.authors : (book.author ? [book.author] : []);
+      names.forEach((name, index) => {
+        const id = book.catalogAuthorIds?.[index] || `local-author:${name.toLocaleLowerCase()}`;
+        const entity = authors.get(id) || { id, name, bookIds: [], local: !book.catalogAuthorIds?.[index] };
+        entity.bookIds.push(book.id); authors.set(id, entity);
+      });
+      if (book.publisher) {
+        const id = book.catalogPublisherIds?.[0] || `local-publisher:${book.publisher.toLocaleLowerCase()}`;
+        const entity = publishers.get(id) || { id, name: book.publisher, bookIds: [], local: !book.catalogPublisherIds?.[0] };
+        entity.bookIds.push(book.id); publishers.set(id, entity);
+      }
+    }
+    catalogEntities = { authors: [...authors.values()], publishers: [...publishers.values()] };
+  }
+}
+
+async function setCatalogTab(tab: CatalogTab): Promise<void> {
+  catalogTab = tab;
+  el('catalog-tabs').querySelectorAll('button').forEach((button) => button.classList.toggle('active', (button as HTMLElement).dataset.catalogTab === tab));
+  const booksView = tab === 'books';
+  el('viewswitch').classList.toggle('hidden', !booksView);
+  el('continue').classList.toggle('hidden', !booksView);
+  el('lib-body').classList.toggle('hidden', !booksView);
+  el('catalog-body').classList.toggle('hidden', booksView);
+  el('lib-title').textContent = t(tab === 'books' ? 'lib.title' : `catalog.${tab}` as MsgKey);
+  el('lib-count').textContent = booksView ? (books.length ? tn('lib.count', books.length) : '') : '';
+  if (booksView) { renderLibrary(); return; }
+  await loadCatalogEntities();
+  renderCatalogEntities(tab);
+}
+
+function wireCatalogTabs(): void {
+  el('catalog-tabs').addEventListener('click', (event) => {
+    const button = (event.target as HTMLElement).closest('[data-catalog-tab]') as HTMLElement | null;
+    if (button) void setCatalogTab(button.dataset.catalogTab as CatalogTab);
+  });
+}
+
 // OR semantics across the active filter: a book matches if "Uncollected" is
 // selected and it has no collections, or any of its collections is selected.
 function matchesCollectionFilter(b: Book): boolean {
@@ -2513,28 +2683,105 @@ function wireCollectionManager(): void {
 // AI-enrichment surface. Opened from a card's details affordance; PATCHes an
 // allowlisted field set and merges the result back into the in-memory book.
 let detailsBookId: string | null = null;
+let detailsAuthors: { id?: string; name: string }[] = [];
+let detailsPublisherId: string | undefined;
+let detailsCover: string | null | undefined;
+let entitySearchTimer: number | undefined;
 const bdInput = (f: string) => el<HTMLInputElement | HTMLTextAreaElement>('bd-f-' + f);
+
+function syncAuthorChips(): void {
+  el('bd-author-chips').innerHTML = detailsAuthors.map((author, index) =>
+    `<span class="entity-token">${escapeHtml(author.name)}<button type="button" data-remove-author="${index}" aria-label="Remove ${escapeHtml(author.name)}">×</button></span>`).join('');
+  bdInput('authors').value = detailsAuthors.map((author) => author.name).join(', ');
+}
+
+function addDetailsAuthor(name: string, id?: string): void {
+  const clean = name.trim();
+  if (!clean || detailsAuthors.some((author) => author.name.toLocaleLowerCase() === clean.toLocaleLowerCase())) return;
+  detailsAuthors.push({ id, name: clean });
+  syncAuthorChips();
+  el<HTMLInputElement>('bd-author-input').value = '';
+  el('bd-author-options').classList.add('hidden');
+}
+
+function renderEntityOptions(kind: 'author' | 'publisher', entities: { id?: string; name: string }[]): void {
+  const list = el(kind === 'author' ? 'bd-author-options' : 'bd-publisher-options');
+  list.innerHTML = entities.map((entity, index) => `<li role="option" tabindex="-1" data-entity-kind="${kind}" data-entity-idx="${index}">${escapeHtml(entity.name)}</li>`).join('');
+  (list as any)._entities = entities;
+  list.classList.toggle('hidden', entities.length === 0);
+  const input = el(kind === 'author' ? 'bd-author-input' : 'bd-f-publisher');
+  input.setAttribute('aria-expanded', entities.length ? 'true' : 'false');
+}
+
+async function searchEntityOptions(kind: 'author' | 'publisher', query: string): Promise<void> {
+  const local = catalogEntities[kind === 'author' ? 'authors' : 'publishers']
+    .filter((entity) => entity.name.toLocaleLowerCase().includes(query.toLocaleLowerCase())).slice(0, 6);
+  if (query.length < 2) { renderEntityOptions(kind, local); return; }
+  try {
+    const res = await api('/catalog/search', { method: 'POST', body: JSON.stringify({ kind, query, limit: 8 }) });
+    if (!res.ok) throw new Error('search failed');
+    const data = await res.json();
+    const remote = data[kind === 'author' ? 'authors' : 'publishers'] ?? [];
+    const merged = new Map([...local, ...remote].map((entity: CatalogEntity) => [entity.id || entity.name, entity]));
+    renderEntityOptions(kind, [...merged.values()].slice(0, 10));
+  } catch { renderEntityOptions(kind, local); }
+}
+
+function syncMatchState(book: Book): void {
+  const state = el('bd-match-state');
+  const linked = !!book.catalogBookId;
+  const base = linked ? t('catalog.linked')
+    : (book.catalogMatchStatus === 'checking' ? t('catalog.matching')
+      : (book.catalogMatchStatus === 'suggested' ? t('catalog.suggested') : t('catalog.unmatched')));
+  const labelKeys: Record<string, MsgKey> = {
+    title: 'details.fTitle', subtitle: 'details.fSubtitle', authors: 'details.fAuthors',
+    publisher: 'details.fPublisher', year: 'details.fYear', isbn: 'details.fIsbn',
+    language: 'details.fLanguage', description: 'details.fDescription',
+  };
+  const overrideLabels = Object.keys(book.metadataOverrides ?? {}).map((field) => labelKeys[field] ? t(labelKeys[field]) : field);
+  state.textContent = base + (overrideLabels.length ? ` · ${t('catalog.localOverrides', { fields: overrideLabels.join(', ') })}` : '');
+  state.classList.toggle('linked', linked);
+  el('bd-unlink').classList.toggle('hidden', !linked);
+  el<HTMLButtonElement>('bd-cover-catalog').disabled = !book.canonicalMetadata?.coverUrl;
+}
+
+function syncCoverPreview(): void {
+  const preview = el('bd-cover-preview');
+  const cover = detailsCover;
+  preview.style.backgroundImage = cover ? `url('${cover}')` : 'none';
+}
 
 function openBookDetails(id: string): void {
   const b = books.find(x => x.id === id); if (!b) return;
+  void loadCatalogEntities();
   detailsBookId = id;
   bdInput('title').value = b.title || '';
   bdInput('subtitle').value = b.subtitle || '';
-  bdInput('authors').value = (b.authors && b.authors.length ? b.authors : (b.author ? [b.author] : [])).join(', ');
+  const names = b.authors && b.authors.length ? b.authors : (b.author ? [b.author] : []);
+  detailsAuthors = names.map((name, index) => ({ id: b.catalogAuthorIds?.[index], name }));
+  syncAuthorChips();
+  el<HTMLInputElement>('bd-author-input').value = '';
+  for (const optionId of ['bd-author-options', 'bd-publisher-options']) el(optionId).classList.add('hidden');
   bdInput('series').value = b.series || '';
   bdInput('edition').value = b.edition || '';
   bdInput('publisher').value = b.publisher || '';
+  detailsPublisherId = b.catalogPublisherIds?.[0];
   bdInput('year').value = b.year != null ? String(b.year) : '';
   bdInput('isbn').value = b.isbn || '';
   bdInput('language').value = b.language || '';
   bdInput('description').value = b.description || '';
   bdInput('goodreads').value = b.goodreadsUrl || '';
+  detailsCover = b.cover;
+  syncCoverPreview();
+  el('bd-cover-status').textContent = '';
+  syncMatchState(b);
   el('bd-f-collection').innerHTML = collections.length
     ? collectionChecklist(b.collections || [])
     : `<p class="coll-none">${t('coll.none')}</p>`;
-  bdCandidates = [];
-  el('bd-gr-results').innerHTML = '';
-  el('bd-gr-status').textContent = '';
+  bdCandidates = Array.isArray(b.catalogSuggestions) ? b.catalogSuggestions : [];
+  if (bdCandidates.length) renderCandidates(bdCandidates);
+  else el('bd-gr-results').innerHTML = '';
+  el('bd-gr-status').textContent = bdCandidates.length ? t('catalog.suggested') : '';
   bdUpdateGoodreadsView();
   const modal = el('book-details');
   modal.classList.remove('hidden');
@@ -2561,7 +2808,10 @@ async function fillBookDetailsAI(): Promise<void> {
     if (fields) {
       set('title', fields.title || '');
       set('subtitle', fields.subtitle || '');
-      set('authors', Array.isArray(fields.authors) ? fields.authors.join(', ') : '');
+      if (!detailsAuthors.length && Array.isArray(fields.authors)) {
+        detailsAuthors = fields.authors.map((name: string) => ({ name }));
+        syncAuthorChips();
+      }
       set('series', fields.series || '');
       set('edition', fields.edition || '');
       set('publisher', fields.publisher || '');
@@ -2581,7 +2831,11 @@ async function fillBookDetailsAI(): Promise<void> {
 // Open Library lookup → Goodreads link. A candidate carries normalized metadata
 // plus a derived Goodreads link (id link when known, else a Goodreads search URL).
 interface Candidate {
-  title?: string; authors: string[]; year?: number; isbn?: string;
+  catalogBookId?: string; editionId?: string; workId?: string; sourceUrl?: string | null;
+  title?: string; subtitle?: string; authors: string[];
+  authorEntities?: { id: string; name: string }[];
+  publisher?: string; publishers?: { id: string; name: string }[];
+  year?: number; isbn?: string; language?: string;
   coverUrl: string | null; goodreadsUrl: string | null; searchUrl: string | null;
 }
 let bdCandidates: Candidate[] = [];
@@ -2625,17 +2879,31 @@ function renderCandidates(cands: Candidate[]): void {
 
 // Fill empty metadata inputs from a chosen candidate (non-destructive, mirroring
 // the AI fill), and set the Goodreads link (id link, else search fallback).
-function applyCandidate(c: Candidate): void {
+async function applyCandidate(c: Candidate): Promise<void> {
+  if (!detailsBookId || !c.catalogBookId) return;
+  const response = await api('/books/' + encodeURIComponent(detailsBookId) + '/catalog-match', {
+    method: 'POST', body: JSON.stringify({ candidate: c }),
+  });
+  if (!response.ok) throw new Error('catalog match failed');
+  const result = await response.json();
+  const book = books.find((item) => item.id === detailsBookId);
+  if (book && result.book) Object.assign(book, result.book);
   const set = (f: string, val: string) => { const inp = bdInput(f); if (!inp.value.trim() && val) inp.value = val; };
   set('title', c.title || '');
-  set('authors', c.authors.join(', '));
+  if (!detailsAuthors.length) {
+    detailsAuthors = (c.authorEntities?.length ? c.authorEntities : c.authors.map((name) => ({ name }))).slice();
+    syncAuthorChips();
+  }
+  set('publisher', c.publisher || c.publishers?.[0]?.name || '');
   set('year', c.year != null ? String(c.year) : '');
   set('isbn', c.isbn || '');
+  set('language', c.language || '');
   const grInput = bdInput('goodreads');
   const link = c.goodreadsUrl || c.searchUrl || '';
   if (!grInput.value.trim() && link) grInput.value = link;
   bdUpdateGoodreadsView();
-  toast(t('goodreads.applied'));
+  if (book) syncMatchState(book);
+  toast(t('catalog.matched'));
 }
 
 // Search Open Library using the current modal inputs (title/authors/isbn) so an
@@ -2645,14 +2913,14 @@ async function searchOnlineMeta(): Promise<void> {
   const btn = el<HTMLButtonElement>('bd-gr-search');
   const status = el('bd-gr-status');
   const title = bdInput('title').value.trim();
-  const author = bdInput('authors').value.split(/[,;]/)[0]?.trim() || '';
+  const author = detailsAuthors[0]?.name || '';
   const isbn = bdInput('isbn').value.trim();
   if (!title && !isbn) { status.textContent = t('goodreads.needTitle'); return; }
   btn.disabled = true;
   status.textContent = t('goodreads.searching');
   try {
-    const res = await api('/booklookup', { method: 'POST', body: JSON.stringify({ title, author, isbn }) });
-    const { candidates } = await res.json();
+    const res = await api('/catalog/search', { method: 'POST', body: JSON.stringify({ kind: 'book', title, author, isbn }) });
+    const { books: candidates } = await res.json();
     bdCandidates = Array.isArray(candidates) ? candidates : [];
     if (!bdCandidates.length) { status.textContent = t('goodreads.noMatches'); el('bd-gr-results').innerHTML = ''; }
     else { status.textContent = ''; renderCandidates(bdCandidates); }
@@ -2666,27 +2934,29 @@ async function searchOnlineMeta(): Promise<void> {
 
 async function saveBookDetails(): Promise<void> {
   if (!detailsBookId) return;
+  const pendingAuthor = el<HTMLInputElement>('bd-author-input').value.trim();
+  if (pendingAuthor) addDetailsAuthor(pendingAuthor);
   const id = detailsBookId;
-  const authors = bdInput('authors').value.split(/[,;]/).map(s => s.trim()).filter(Boolean);
-  const str = (f: string) => { const v = bdInput(f).value.trim(); return v ? v : undefined; };
+  const authors = detailsAuthors.map((author) => author.name);
   const yearRaw = bdInput('year').value.trim();
   const year = yearRaw ? parseInt(yearRaw, 10) : NaN;
   const cids = checkedCollectionIds('bd-f-collection');
-  const fields: Partial<Book> = {
+  const fields: Omit<Partial<Book>, 'year'> & { year?: number | null } = {
     title: bdInput('title').value.trim() || t('lib.unknown'),
-    subtitle: str('subtitle'),
-    authors: authors.length ? authors : undefined,
+    subtitle: bdInput('subtitle').value.trim(),
+    authors,
     author: authors.join(', '),
-    series: str('series'),
-    edition: str('edition'),
-    publisher: str('publisher'),
-    isbn: str('isbn'),
-    language: str('language'),
-    description: str('description'),
+    series: bdInput('series').value.trim(),
+    edition: bdInput('edition').value.trim(),
+    publisher: bdInput('publisher').value.trim(),
+    isbn: bdInput('isbn').value.trim(),
+    language: bdInput('language').value.trim(),
+    description: bdInput('description').value.trim(),
     collections: cids,
-    goodreadsUrl: str('goodreads'),
+    goodreadsUrl: bdInput('goodreads').value.trim(),
+    cover: detailsCover,
   };
-  if (!Number.isNaN(year)) fields.year = year;
+  fields.year = yearRaw ? (!Number.isNaN(year) ? year : null) : null;
   if (fields.goodreadsUrl && !isGoodreadsUrl(fields.goodreadsUrl)) {
     toast(t('goodreads.badUrl'));
     return;
@@ -2694,6 +2964,23 @@ async function saveBookDetails(): Promise<void> {
   try {
     const res = await api('/books/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify(fields) });
     if (!res.ok) throw new Error('patch failed');
+    const result = await res.json();
+    const saved = books.find(x => x.id === id);
+    if (saved && result.book) Object.assign(saved, result.book);
+    if (saved && !saved.catalogBookId) {
+      const authorIds = detailsAuthors.map((author) => author.id
+        || `local-author:${encodeURIComponent(author.name.toLocaleLowerCase())}`);
+      const publisherIds = fields.publisher
+        ? [detailsPublisherId || `local-publisher:${encodeURIComponent(fields.publisher.toLocaleLowerCase())}`]
+        : [];
+      const entityRes = await api('/books/' + encodeURIComponent(id) + '/catalog-entities', {
+        method: 'PUT', body: JSON.stringify({ authorIds, publisherIds }),
+      });
+      if (entityRes.ok) {
+        const entityResult = await entityRes.json();
+        if (entityResult.book) Object.assign(saved, entityResult.book);
+      }
+    }
   } catch (e) {
     if (e instanceof ApiNetworkError) { toast(t('toast.offlineRetry')); return; }
     throw e;
@@ -2704,6 +2991,59 @@ async function saveBookDetails(): Promise<void> {
   renderLibrary();
   toast(t('details.saved'));
 }
+
+async function imageBlobToCover(blob: Blob): Promise<string> {
+  const url = URL.createObjectURL(blob);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const node = new Image(); node.onload = () => resolve(node); node.onerror = reject; node.src = url;
+    });
+    const maxHeight = 480;
+    const scale = Math.min(1, maxHeight / Math.max(1, image.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    canvas.getContext('2d')!.drawImage(image, 0, 0, canvas.width, canvas.height);
+    let quality = .82;
+    let result = canvas.toDataURL('image/jpeg', quality);
+    while (result.length > 290_000 && quality > .5) {
+      quality -= .08; result = canvas.toDataURL('image/jpeg', quality);
+    }
+    if (result.length > 300_000) throw new Error('cover too large');
+    return result;
+  } finally { URL.revokeObjectURL(url); }
+}
+
+async function regenerateOriginalCover(book: Book): Promise<string | null> {
+  const format = book.format ?? 'pdf';
+  if (!['pdf', 'cbz', 'epub'].includes(format)) return null;
+  const bytes = await dbGet(book.id);
+  if (!bytes) throw new Error('document unavailable');
+  if (format === 'pdf') return renderCover(await loadDoc(bytes));
+  if (format === 'cbz') {
+    const pages = await unzipCbz(bytes);
+    if (!pages.length) return null;
+    return renderImageCover(await imageFromBytes(pages[0].data, imageMimeFor(pages[0].name)));
+  }
+  const ePub = await loadEpubLib();
+  const epubBook = ePub(bytes.slice(0));
+  try { await epubBook.ready; return await epubCover(epubBook); }
+  finally { try { epubBook.destroy?.(); } catch {} }
+}
+
+async function unlinkCatalog(): Promise<void> {
+  if (!detailsBookId) return;
+  const response = await api('/books/' + encodeURIComponent(detailsBookId) + '/catalog-match', { method: 'DELETE' });
+  if (!response.ok) throw new Error('unlink failed');
+  const book = books.find((item) => item.id === detailsBookId);
+  if (book) {
+    delete book.catalogBookId; delete book.catalogAuthorIds; delete book.catalogPublisherIds;
+    delete book.canonicalMetadata; delete book.metadataOverrides; book.catalogMatchStatus = 'unmatched';
+    syncMatchState(book);
+  }
+  toast(t('catalog.unlinked'));
+}
+
 function wireBookDetails(): void {
   el('bd-save').addEventListener('click', saveBookDetails);
   el('bd-cancel').addEventListener('click', closeBookDetails);
@@ -2715,13 +3055,90 @@ function wireBookDetails(): void {
     if (!hit) return;
     e.preventDefault();
     const c = bdCandidates[Number(hit.dataset.candIdx)];
-    if (c) applyCandidate(c);
+    if (c) void applyCandidate(c).catch(() => { el('bd-gr-status').textContent = t('goodreads.error'); });
   };
   el('bd-gr-results').addEventListener('click', pickFromEvent);
   el('bd-gr-results').addEventListener('keydown', (e) => {
     const k = (e as KeyboardEvent).key;
     if (k === 'Enter' || k === ' ') pickFromEvent(e);
   });
+  el('bd-author-chips').addEventListener('click', (event) => {
+    const button = (event.target as HTMLElement).closest('[data-remove-author]') as HTMLElement | null;
+    if (!button) return;
+    detailsAuthors.splice(Number(button.dataset.removeAuthor), 1); syncAuthorChips();
+  });
+  const authorInput = el<HTMLInputElement>('bd-author-input');
+  authorInput.addEventListener('input', () => {
+    window.clearTimeout(entitySearchTimer);
+    entitySearchTimer = window.setTimeout(() => void searchEntityOptions('author', authorInput.value.trim()), 280);
+  });
+  authorInput.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown' && !el('bd-author-options').classList.contains('hidden')) {
+      event.preventDefault(); el('bd-author-options').querySelector<HTMLElement>('[role="option"]')?.focus();
+    } else if ((event.key === 'Enter' || event.key === ',') && authorInput.value.trim()) {
+      event.preventDefault(); addDetailsAuthor(authorInput.value.replace(/,$/, ''));
+    } else if (event.key === 'Backspace' && !authorInput.value && detailsAuthors.length) {
+      detailsAuthors.pop(); syncAuthorChips();
+    }
+  });
+  const publisherInput = bdInput('publisher') as HTMLInputElement;
+  publisherInput.addEventListener('input', () => {
+    detailsPublisherId = undefined;
+    window.clearTimeout(entitySearchTimer);
+    entitySearchTimer = window.setTimeout(() => void searchEntityOptions('publisher', publisherInput.value.trim()), 280);
+  });
+  publisherInput.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown' && !el('bd-publisher-options').classList.contains('hidden')) {
+      event.preventDefault(); el('bd-publisher-options').querySelector<HTMLElement>('[role="option"]')?.focus();
+    }
+  });
+  for (const id of ['bd-author-options', 'bd-publisher-options']) {
+    el(id).addEventListener('click', (event) => {
+      const option = (event.target as HTMLElement).closest('[data-entity-idx]') as HTMLElement | null;
+      if (!option) return;
+      const list = el(id) as any;
+      const entity = list._entities?.[Number(option.dataset.entityIdx)];
+      if (!entity) return;
+      if (option.dataset.entityKind === 'author') addDetailsAuthor(entity.name, entity.local ? undefined : entity.id);
+      else { publisherInput.value = entity.name; detailsPublisherId = entity.local ? undefined : entity.id; list.classList.add('hidden'); }
+    });
+    el(id).addEventListener('keydown', (event) => {
+      const current = (event.target as HTMLElement).closest('[role="option"]') as HTMLElement | null;
+      if (!current) return;
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); current.click(); }
+      if (event.key === 'Escape') { el(id).classList.add('hidden'); (id === 'bd-author-options' ? authorInput : publisherInput).focus(); }
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const options = Array.from(el(id).querySelectorAll<HTMLElement>('[role="option"]'));
+        const delta = event.key === 'ArrowDown' ? 1 : -1;
+        options[(options.indexOf(current) + delta + options.length) % options.length]?.focus();
+      }
+    });
+  }
+  el<HTMLInputElement>('bd-cover-upload').addEventListener('change', async (event) => {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 10 * 1024 * 1024) {
+      el('bd-cover-status').textContent = t('cover.invalid'); return;
+    }
+    try { detailsCover = await imageBlobToCover(file); syncCoverPreview(); }
+    catch { el('bd-cover-status').textContent = t('cover.invalid'); }
+  });
+  el('bd-cover-catalog').addEventListener('click', async () => {
+    const book = books.find((item) => item.id === detailsBookId);
+    const url = book?.canonicalMetadata?.coverUrl;
+    if (typeof url !== 'string') { el('bd-cover-status').textContent = t('cover.noCatalog'); return; }
+    try {
+      const response = await fetch(url); if (!response.ok) throw new Error('cover fetch');
+      detailsCover = await imageBlobToCover(await response.blob()); syncCoverPreview();
+    } catch { el('bd-cover-status').textContent = t('goodreads.error'); }
+  });
+  el('bd-cover-reset').addEventListener('click', async () => {
+    const book = books.find((item) => item.id === detailsBookId); if (!book) return;
+    try { detailsCover = await regenerateOriginalCover(book); syncCoverPreview(); el('bd-cover-status').textContent = t('cover.resetDone'); }
+    catch { el('bd-cover-status').textContent = t('toast.cantLoad'); }
+  });
+  el('bd-unlink').addEventListener('click', () => void unlinkCatalog().catch(() => toast(t('goodreads.error'))));
   el('book-details').addEventListener('click', (e) => { if (e.target === el('book-details')) closeBookDetails(); });
   document.addEventListener('keydown', (e) => {
     if ((e as KeyboardEvent).key === 'Escape' && !el('book-details').classList.contains('hidden')) closeBookDetails();
@@ -5050,6 +5467,7 @@ function wireNotes(): void {
 function showApp(name: string): void {
   el('login').classList.add('hidden');
   el('app').classList.remove('hidden');
+  void setCatalogTab('books');
   const initial = (name.trim()[0] || t('common.reader')[0]).toUpperCase();
   el('avatar-initial').textContent = initial;
   el('user-name').textContent = name.trim() || t('common.reader');
@@ -5238,9 +5656,15 @@ function wireAuth(): void {
     _showAuthStep('signin');
     booted = false;
     books = [];
+    collections = [];
+    catalogEntities = { authors: [], publishers: [] };
+    catalogTab = 'books';
     void showWaitingCue();
   });
-  el('brand').addEventListener('click', () => { if (el('reader').classList.contains('show')) closeReader(); });
+  el('brand').addEventListener('click', () => {
+    if (el('reader').classList.contains('show')) closeReader();
+    void setCatalogTab('books');
+  });
 }
 
 // ============================================================
@@ -5313,6 +5737,33 @@ function wireLinkSheet(): void {
 // ============================================================
 let booted = false;
 
+// A gentle sequential matcher avoids request bursts against Open Library. Exact
+// ISBNs auto-link server-side; title/author results remain reviewable suggestions.
+async function checkCatalogMatches(candidates: Book[] = books): Promise<void> {
+  for (const book of candidates) {
+    const cacheDays = book.catalogMatchStatus === 'none' ? 1 : 30;
+    const staleBefore = Date.now() - cacheDays * 24 * 60 * 60 * 1000;
+    if (isNote(book) || book.catalogBookId || (book.catalogCheckedAt ?? 0) > staleBefore) continue;
+    try {
+      book.catalogMatchStatus = 'checking';
+      const response = await api('/books/' + encodeURIComponent(book.id) + '/catalog-check', {
+        method: 'POST', body: '{}',
+      });
+      if (!response.ok) continue;
+      const result = await response.json();
+      if (result.matched && result.book) Object.assign(book, result.book);
+      else {
+        book.catalogSuggestions = Array.isArray(result.suggestions) ? result.suggestions : [];
+        book.catalogMatchStatus = book.catalogSuggestions.length ? 'suggested' : 'none';
+        book.catalogCheckedAt = Date.now();
+      }
+    } catch (error) {
+      if (error instanceof ApiNetworkError) break;
+    }
+  }
+  if (catalogTab === 'books') renderLibrary();
+}
+
 // Pull the library list, retrying a transient launch-time network failure.
 // Installed PWAs routinely cold-start before the radio/DNS is ready: the first
 // /api/books rejects while navigator.onLine is already true, so the 'online'
@@ -5350,6 +5801,7 @@ async function boot(): Promise<void> {
   }
   pruneActiveCollections();   // drop active filters whose collection no longer exists
   renderLibrary();
+  void checkCatalogMatches();
   await handleLaunchParams();
   await drainLaunchFiles();   // shelve files opened with Folium before sign-in
 }
@@ -5371,7 +5823,8 @@ async function resyncLibrary(): Promise<void> {
   try {
     books = (await dbAll()) as unknown as Book[];
     pruneActiveCollections();
-    renderLibrary();
+    if (catalogTab === 'books') renderLibrary();
+    else await setCatalogTab(catalogTab);
   } catch { /* offline or logged out — dbAll()/api() already drove the UI */ }
 }
 
@@ -5715,9 +6168,14 @@ function init(): void {
     el('login').classList.remove('hidden');
     _showAuthStep('signin');
     booted = false;
+    books = [];
+    collections = [];
+    catalogEntities = { authors: [], publishers: [] };
+    catalogTab = 'books';
     void showWaitingCue();
   };
   wireViewSwitch();
+  wireCatalogTabs();
   wireThemeToggle();
   wireLibrary();
   wireUpload();

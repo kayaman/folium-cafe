@@ -5,7 +5,7 @@ import { BOOK_META_FIELDS, updateBookMeta } from '../src/repo.mjs';
 // The allowlist is the security boundary for PATCH /api/books/{id}: only these
 // attributes can ever be written by a client.
 test('BOOK_META_FIELDS allows the expected metadata fields only', () => {
-  for (const k of ['title', 'author', 'subtitle', 'authors', 'edition', 'publisher', 'year', 'isbn', 'language', 'series', 'description', 'collections', 'goodreadsUrl']) {
+  for (const k of ['title', 'author', 'subtitle', 'authors', 'edition', 'publisher', 'year', 'isbn', 'language', 'series', 'description', 'collections', 'goodreadsUrl', 'cover']) {
     assert.ok(BOOK_META_FIELDS.has(k), `${k} should be allowed`);
   }
   // A few attributes a client must never be able to set via PATCH.

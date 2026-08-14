@@ -8,6 +8,7 @@ export const LIMITS = {
   login:   { limit: 10, windowSeconds: 900 },
   confirm: { limit: 10, windowSeconds: 3600 },
   forgot:  { limit: 5,  windowSeconds: 3600 },
+  catalog: { limit: 120, windowSeconds: 3600 },
 };
 
 export function makeRateLimiter({

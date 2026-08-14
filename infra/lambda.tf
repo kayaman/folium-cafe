@@ -31,7 +31,7 @@ resource "aws_iam_role_policy" "lambda" {
       {
         Effect   = "Allow"
         Action   = ["dynamodb:Query", "dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem"]
-        Resource = aws_dynamodb_table.books.arn
+        Resource = [aws_dynamodb_table.books.arn, aws_dynamodb_table.catalog.arn]
       },
       {
         Effect   = "Allow"
@@ -82,6 +82,7 @@ resource "aws_lambda_function" "api" {
   environment {
     variables = {
       TABLE_NAME          = aws_dynamodb_table.books.name
+      CATALOG_TABLE_NAME  = aws_dynamodb_table.catalog.name
       PDF_BUCKET          = aws_s3_bucket.pdfs.bucket
       PASSWORD_PARAM      = aws_ssm_parameter.password.name
       HMAC_PARAM          = aws_ssm_parameter.hmac_key.name

@@ -265,7 +265,7 @@ export async function updateNoteMeta(userId, id, fields) {
 export const BOOK_META_FIELDS = new Set([
   'title', 'author', 'subtitle', 'authors', 'edition',
   'publisher', 'year', 'isbn', 'language', 'series', 'description',
-  'collections', 'goodreadsUrl',
+  'collections', 'goodreadsUrl', 'cover',
 ]);
 
 // Update whichever allowlisted book-metadata fields are present. Mirrors
@@ -297,6 +297,82 @@ export async function getBook(userId, id) {
   if (!out.Item) return null;
   const { pk: _pk, ...rest } = out.Item;
   return { ...rest, format: rest.format ?? 'pdf' };
+}
+
+// Catalog linkage is server-owned state: clients choose a candidate, but these
+// attributes are written only by the catalog routes and never by PATCH.
+export async function setBookCatalog(userId, id, link) {
+  await ddb.send(new UpdateCommand({
+    TableName: TABLE,
+    Key: { pk: pk(userId), id },
+    UpdateExpression: [
+      'SET catalogBookId = :cb, catalogAuthorIds = :ca, catalogPublisherIds = :cp',
+      'canonicalMetadata = :cm, metadataOverrides = :mo, catalogMatchStatus = :ms',
+      'catalogCheckedAt = :at, title = :title, author = :author, authors = :authors',
+      'publisher = :publisher, #year = :year, isbn = :isbn, #language = :language',
+      'subtitle = :subtitle, goodreadsUrl = :goodreadsUrl',
+    ].join(', '),
+    ConditionExpression: 'attribute_exists(id)',
+    ExpressionAttributeNames: { '#year': 'year', '#language': 'language' },
+    ExpressionAttributeValues: {
+      ':cb': link.catalogBookId,
+      ':ca': link.catalogAuthorIds ?? [],
+      ':cp': link.catalogPublisherIds ?? [],
+      ':cm': link.canonicalMetadata ?? {},
+      ':mo': link.metadataOverrides ?? {},
+      ':ms': 'linked',
+      ':at': Date.now(),
+      ':title': link.title ?? '',
+      ':author': link.author ?? '',
+      ':authors': link.authors ?? [],
+      ':publisher': link.publisher ?? '',
+      ':year': link.year ?? null,
+      ':isbn': link.isbn ?? '',
+      ':language': link.language ?? '',
+      ':subtitle': link.subtitle ?? '',
+      ':goodreadsUrl': link.goodreadsUrl ?? '',
+    },
+  }));
+}
+
+export async function setCatalogMatchState(userId, id, status, suggestions = []) {
+  await ddb.send(new UpdateCommand({
+    TableName: TABLE,
+    Key: { pk: pk(userId), id },
+    UpdateExpression: 'SET catalogMatchStatus = :s, catalogCheckedAt = :at, catalogSuggestions = :c',
+    ConditionExpression: 'attribute_exists(id)',
+    ExpressionAttributeValues: { ':s': status, ':at': Date.now(), ':c': suggestions.slice(0, 5) },
+  }));
+}
+
+export async function setMetadataOverrides(userId, id, overrides) {
+  await ddb.send(new UpdateCommand({
+    TableName: TABLE,
+    Key: { pk: pk(userId), id },
+    UpdateExpression: 'SET metadataOverrides = :o',
+    ConditionExpression: 'attribute_exists(id)',
+    ExpressionAttributeValues: { ':o': overrides ?? {} },
+  }));
+}
+
+export async function clearBookCatalog(userId, id) {
+  await ddb.send(new UpdateCommand({
+    TableName: TABLE,
+    Key: { pk: pk(userId), id },
+    UpdateExpression: 'REMOVE catalogBookId, catalogAuthorIds, catalogPublisherIds, canonicalMetadata, metadataOverrides, catalogSuggestions SET catalogMatchStatus = :s, catalogCheckedAt = :at',
+    ConditionExpression: 'attribute_exists(id)',
+    ExpressionAttributeValues: { ':s': 'unmatched', ':at': Date.now() },
+  }));
+}
+
+export async function setBookCatalogEntities(userId, id, authorIds, publisherIds) {
+  await ddb.send(new UpdateCommand({
+    TableName: TABLE,
+    Key: { pk: pk(userId), id },
+    UpdateExpression: 'SET catalogAuthorIds = :a, catalogPublisherIds = :p',
+    ConditionExpression: 'attribute_exists(id)',
+    ExpressionAttributeValues: { ':a': authorIds, ':p': publisherIds },
+  }));
 }
 
 // Pure, unit-testable: assemble the progress UpdateCommand input. posFrac is

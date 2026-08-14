@@ -5,6 +5,7 @@ import { makeRateLimiter, LIMITS } from './ratelimit.mjs';
 import * as repo from './repo.mjs';
 import { extractMetadata } from './bedrock.mjs';
 import { searchBooks } from './openlibrary.mjs';
+import { attachCatalogEntities, findUniqueIsbnMatch, linkBook, listUserCatalog, searchCatalog } from './catalog.mjs';
 
 // Lazily constructed so importing this module for its pure helpers (the unit
 // tests do this) never touches Cognito config / env vars. makeVerifier throws
@@ -62,6 +63,13 @@ export function isGoodreadsUrl(s) {
     const u = new URL(s);
     return u.protocol === 'https:' && GOODREADS_HOSTS.has(u.host);
   } catch { return false; }
+}
+
+export function isBookCover(value) {
+  if (value === null || value === '') return true;
+  return typeof value === 'string'
+    && value.length <= 300_000
+    && /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(value);
 }
 
 // Resolve the caller from the access-token cookie. If the access token is
@@ -295,6 +303,81 @@ export async function handler(event) {
       }
     }
 
+    // --- normalized private-library catalog ---
+    if (method === 'GET' && path === '/api/catalog') {
+      return ok(json(200, await listUserCatalog(userId)));
+    }
+
+    if (method === 'POST' && path === '/api/catalog/search') {
+      if (!(await limiter()('catalog', userId, LIMITS.catalog))) return ok(json(429, { error: 'too many requests' }));
+      const kind = ['book', 'author', 'publisher'].includes(body.kind) ? body.kind : 'book';
+      if (!body.query && !body.title && !body.isbn && !body.author) {
+        return ok(json(400, { error: 'no query' }));
+      }
+      try {
+        return ok(json(200, await searchCatalog({ ...body, kind })));
+      } catch (err) {
+        console.error('catalog search error', err);
+        return ok(json(502, { error: 'lookup failed' }));
+      }
+    }
+
+    const catalogRoute = path.match(/^\/api\/books\/([^/]+)\/catalog-(check|match)$/);
+    if (catalogRoute) {
+      const id = decodeURIComponent(catalogRoute[1]);
+      const action = catalogRoute[2];
+      const book = await repo.getBook(userId, id);
+      if (!book) return ok(json(404, { error: 'not found' }));
+      if (method === 'POST' && action === 'match') {
+        try {
+          const linked = await linkBook(userId, id, body.candidate);
+          return ok(json(200, { ok: true, book: linked }));
+        } catch (err) {
+          if (err instanceof TypeError) return ok(json(400, { error: 'invalid candidate' }));
+          throw err;
+        }
+      }
+      if (method === 'DELETE' && action === 'match') {
+        await repo.clearBookCatalog(userId, id);
+        return ok(json(200, { ok: true }));
+      }
+      if (method === 'POST' && action === 'check') {
+        if (book.catalogMatchStatus === 'linked') return ok(json(200, { matched: true, book }));
+        if (!(await limiter()('catalog', userId, LIMITS.catalog))) return ok(json(429, { error: 'too many requests' }));
+        try {
+          const result = await searchCatalog({
+            kind: 'book', isbn: book.isbn, title: book.title, author: book.authors?.[0] || book.author, limit: 5,
+          });
+          const candidates = result.books ?? [];
+          const exact = findUniqueIsbnMatch(book.isbn, candidates);
+          if (exact) {
+            const linked = await linkBook(userId, id, exact);
+            return ok(json(200, { matched: true, book: linked }));
+          }
+          const suggestions = candidates.slice(0, 5);
+          await repo.setCatalogMatchState(userId, id, suggestions.length ? 'suggested' : 'none', suggestions);
+          return ok(json(200, { matched: false, suggestions }));
+        } catch (err) {
+          console.error('catalog check error', err);
+          return ok(json(502, { error: 'lookup failed' }));
+        }
+      }
+    }
+
+    const entityRoute = path.match(/^\/api\/books\/([^/]+)\/catalog-entities$/);
+    if (method === 'PUT' && entityRoute) {
+      try {
+        const book = await attachCatalogEntities(
+          userId, decodeURIComponent(entityRoute[1]), body.authorIds, body.publisherIds,
+        );
+        if (!book) return ok(json(404, { error: 'not found' }));
+        return ok(json(200, { ok: true, book }));
+      } catch (err) {
+        if (err instanceof TypeError) return ok(json(400, { error: 'unknown catalog entity' }));
+        throw err;
+      }
+    }
+
     const m = path.match(/^\/api\/books\/([^/]+)(\/url|\/progress|\/collections|\/finalize)?$/);
     if (m) {
       const id = decodeURIComponent(m[1]);
@@ -349,13 +432,30 @@ export async function handler(event) {
         if (body.goodreadsUrl != null && body.goodreadsUrl !== '' && !isGoodreadsUrl(body.goodreadsUrl)) {
           return ok(json(400, { error: 'goodreadsUrl must be an https goodreads.com URL' }));
         }
+        if (body.cover !== undefined && !isBookCover(body.cover)) {
+          return ok(json(400, { error: 'cover must be a compact image data URL' }));
+        }
         try {
           await repo.updateBookMeta(userId, id, body);
+          const current = await repo.getBook(userId, id);
+          if (current?.catalogBookId && current.canonicalMetadata) {
+            const overrides = { ...(current.metadataOverrides ?? {}) };
+            for (const field of repo.BOOK_META_FIELDS) {
+              if (!(field in body) || field === 'author' || field === 'collections' || field === 'cover') continue;
+              const canonical = current.canonicalMetadata[field];
+              const value = body[field];
+              const same = JSON.stringify(value ?? '') === JSON.stringify(canonical ?? '');
+              if (same) delete overrides[field];
+              else overrides[field] = value;
+            }
+            await repo.setMetadataOverrides(userId, id, overrides);
+            current.metadataOverrides = overrides;
+          }
+          return ok(json(200, { ok: true, book: current ?? null }));
         } catch (err) {
           if (err?.name === 'ConditionalCheckFailedException') return ok(json(404, { error: 'not found' }));
           throw err;
         }
-        return ok(json(200, { ok: true }));
       }
       if (method === 'DELETE' && !sub) {
         await repo.deleteBook(userId, id);
