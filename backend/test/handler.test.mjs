@@ -18,7 +18,15 @@ process.env.AWS_ACCESS_KEY_ID = 'AKIATEST';
 process.env.AWS_SECRET_ACCESS_KEY = 'sk-test';
 
 const repo = await import('../src/repo.mjs');
-const { handler } = await import('../src/handler.mjs');
+const { handler, isBookCover } = await import('../src/handler.mjs');
+
+test('book covers accept compact image data URLs and reject remote/oversized values', () => {
+  assert.equal(isBookCover(null), true);
+  assert.equal(isBookCover('data:image/jpeg;base64,YWJjZA=='), true);
+  assert.equal(isBookCover('https://example.com/cover.jpg'), false);
+  assert.equal(isBookCover('data:text/html;base64,YQ=='), false);
+  assert.equal(isBookCover(`data:image/jpeg;base64,${'A'.repeat(300_001)}`), false);
+});
 
 // ---------- helpers ----------
 const ORIGIN = { 'x-origin-secret': 'topsecret', 'x-forwarded-for': '1.2.3.4' };
@@ -459,6 +467,43 @@ test('POST /api/booklookup requires a session', async (t) => {
   mockDdb(t); // no authn → verifier returns undefined
   const res = await handler(event('POST', '/api/booklookup', { ...AUTHED, body: { title: 'x' } }));
   assert.equal(res.statusCode, 401);
+});
+
+test('GET /api/catalog exposes only entities referenced by the current library', async (t) => {
+  authn(t);
+  mockDdb(t, { QueryCommand: () => ({ Items: [
+    { pk: 'u#u1', id: 'b1', title: 'One', author: 'Ada', authors: ['Ada'], publisher: 'Fine Press' },
+    { pk: 'u#u1', id: 'n1', format: 'note', title: 'Private note' },
+  ] }) });
+  const res = await handler(event('GET', '/api/catalog', AUTHED));
+  assert.equal(res.statusCode, 200);
+  const body = JSON.parse(res.body);
+  assert.deepEqual(body.books.map((book) => book.id), ['b1']);
+  assert.deepEqual(body.authors.map((author) => author.name), ['Ada']);
+  assert.deepEqual(body.publishers.map((publisher) => publisher.name), ['Fine Press']);
+});
+
+test('POST and DELETE catalog-match link and unlink a private library book', async (t) => {
+  authn(t);
+  mockDdb(t, {
+    GetCommand: () => ({ Item: { pk: 'u#u1', id: 'b1', title: 'Local title', author: '' } }),
+    UpdateCommand: () => ({}),
+  });
+  const candidate = {
+    catalogBookId: 'ol-work:OL1W', title: 'Catalog title',
+    authorEntities: [{ id: 'ol-author:OL2A', name: 'Ada' }],
+    publishers: [{ name: 'Fine Press' }],
+  };
+  const linked = await handler(event('POST', '/api/books/b1/catalog-match', { ...AUTHED, body: { candidate } }));
+  assert.equal(linked.statusCode, 200);
+  assert.equal(JSON.parse(linked.body).book.catalogBookId, 'ol-work:OL1W');
+  const unlinked = await handler(event('DELETE', '/api/books/b1/catalog-match', AUTHED));
+  assert.equal(unlinked.statusCode, 200);
+  const entities = await handler(event('PUT', '/api/books/b1/catalog-entities', {
+    ...AUTHED, body: { authorIds: ['ol-author:OL2A'], publisherIds: ['publisher:fine-press'] },
+  }));
+  assert.equal(entities.statusCode, 200);
+  assert.deepEqual(JSON.parse(entities.body).book.catalogAuthorIds, ['ol-author:OL2A']);
 });
 
 // ===== PATCH goodreadsUrl validation =====
